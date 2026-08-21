@@ -1,5 +1,5 @@
-DMM Driver v2.0 Live Cloud
-Built from commit: 930c9f2e072992d8cf80a4b1c42cc8165cb29682
-Workflow run: 32537110304
-Release tag: dmm-driver-latest
-APK: DMM-Driver-v2.0-live-cloud.apk
+DMM Driver v2.1 Offline SQLite
+Built from commit: 0ee2d92134d3880e05efeb03601bb9b094723a94
+Workflow run: 32537695685
+Release tag: dmm-driver-v2.1-offline
+APK: DMM-Driver-v2.1-offline-sqlite.apk
