@@ -45,3 +45,12 @@ jobs:
           gh release create dmm-driver-latest DMM-Driver-v2.0-live-cloud.apk \
             --title "DMM Driver v2.0 Live Cloud" \
             --notes "Driver test APK linked to https://dmm.aigoat.uk and the live Supabase-backed DMM portal."
+
+      - name: Record successful build
+        run: |
+          printf 'DMM Driver v2.0 Live Cloud\nBuilt from commit: %s\nWorkflow run: %s\nRelease tag: dmm-driver-latest\nAPK: DMM-Driver-v2.0-live-cloud.apk\n' "$GITHUB_SHA" "$GITHUB_RUN_ID" > LATEST_APK_BUILD.txt
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add LATEST_APK_BUILD.txt
+          git commit -m "[skip ci] Record successful DMM Driver APK build" || exit 0
+          git push
