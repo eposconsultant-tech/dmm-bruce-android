@@ -62,7 +62,7 @@ public class MainActivity extends Activity {
         settings.setJavaScriptCanOpenWindowsAutomatically(true);
         settings.setSupportMultipleWindows(false);
         settings.setCacheMode(WebSettings.LOAD_DEFAULT);
-        settings.setUserAgentString(settings.getUserAgentString() + " DMM-Android-Driver/2.18.06");
+        settings.setUserAgentString(settings.getUserAgentString() + " DMM-Android-Driver/2.18.10");
 
         CookieManager cookies = CookieManager.getInstance();
         cookies.setAcceptCookie(true);
