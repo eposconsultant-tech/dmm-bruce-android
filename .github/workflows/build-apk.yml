@@ -29,26 +29,26 @@ jobs:
         run: gradle assembleDebug
 
       - name: Prepare named APK
-        run: cp app/build/outputs/apk/debug/app-debug.apk DMM-Driver-v2.18.05.apk
+        run: cp app/build/outputs/apk/debug/app-debug.apk DMM-Driver-v2.18.06.apk
 
       - name: Upload workflow artifact
         uses: actions/upload-artifact@v4
         with:
-          name: DMM-Driver-v2.18.05
-          path: DMM-Driver-v2.18.05.apk
+          name: DMM-Driver-v2.18.06
+          path: DMM-Driver-v2.18.06.apk
 
       - name: Publish latest test APK release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh release delete dmm-driver-latest --cleanup-tag --yes || true
-          gh release create dmm-driver-latest DMM-Driver-v2.18.05.apk \
-            --title "DMM Driver v2.18.05" \
-            --notes "Driver APK linked to https://dmm.aigoat.uk with v2.18.05 tablet Driver Portal updates."
+          gh release create dmm-driver-latest DMM-Driver-v2.18.06.apk \
+            --title "DMM Driver v2.18.06" \
+            --notes "Android wrapper update for https://dmm.aigoat.uk: portrait/landscape rotation, WebView scrolling, Call and Directions handling."
 
       - name: Record successful build
         run: |
-          printf 'DMM Driver v2.18.05\nBuilt from commit: %s\nWorkflow run: %s\nRelease tag: dmm-driver-latest\nAPK: DMM-Driver-v2.18.05.apk\n' "$GITHUB_SHA" "$GITHUB_RUN_ID" > LATEST_APK_BUILD.txt
+          printf 'DMM Driver v2.18.06\nBuilt from commit: %s\nWorkflow run: %s\nRelease tag: dmm-driver-latest\nAPK: DMM-Driver-v2.18.06.apk\n' "$GITHUB_SHA" "$GITHUB_RUN_ID" > LATEST_APK_BUILD.txt
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add LATEST_APK_BUILD.txt
