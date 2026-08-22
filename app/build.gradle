@@ -10,8 +10,8 @@ android {
         applicationId "uk.aigoat.dmmdriver"
         minSdk 23
         targetSdk 35
-        versionCode 3
-        versionName "2.17.98"
+        versionCode 4
+        versionName "2.18.10"
     }
 }
 
