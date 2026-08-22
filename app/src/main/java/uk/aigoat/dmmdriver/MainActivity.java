@@ -11,6 +11,7 @@ import android.webkit.CookieManager;
 import android.webkit.PermissionRequest;
 import android.webkit.ValueCallback;
 import android.webkit.WebChromeClient;
+import android.webkit.WebResourceRequest;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
@@ -33,7 +34,11 @@ public class MainActivity extends Activity {
 
         webView = new WebView(this);
         webView.setBackgroundColor(Color.WHITE);
-        webView.setOverScrollMode(View.OVER_SCROLL_NEVER);
+        webView.setOverScrollMode(View.OVER_SCROLL_IF_CONTENT_SCROLLS);
+        webView.setVerticalScrollBarEnabled(true);
+        webView.setHorizontalScrollBarEnabled(true);
+        webView.setScrollbarFadingEnabled(false);
+        webView.setScrollBarStyle(View.SCROLLBARS_INSIDE_OVERLAY);
 
         FrameLayout frame = new FrameLayout(this);
         frame.setBackgroundColor(Color.WHITE);
@@ -55,14 +60,60 @@ public class MainActivity extends Activity {
         settings.setLoadWithOverviewMode(true);
         settings.setMediaPlaybackRequiresUserGesture(false);
         settings.setJavaScriptCanOpenWindowsAutomatically(true);
+        settings.setSupportMultipleWindows(false);
         settings.setCacheMode(WebSettings.LOAD_DEFAULT);
-        settings.setUserAgentString(settings.getUserAgentString() + " DMM-Android-Driver/2.17.98");
+        settings.setUserAgentString(settings.getUserAgentString() + " DMM-Android-Driver/2.18.06");
 
         CookieManager cookies = CookieManager.getInstance();
         cookies.setAcceptCookie(true);
         cookies.setAcceptThirdPartyCookies(webView, true);
 
         webView.setWebViewClient(new WebViewClient() {
+            private boolean handleExternalUrl(String url) {
+                if (url == null || url.isEmpty()) return false;
+                try {
+                    Uri uri = Uri.parse(url);
+                    String scheme = uri.getScheme() == null ? "" : uri.getScheme().toLowerCase();
+                    String host = uri.getHost() == null ? "" : uri.getHost().toLowerCase();
+
+                    if ("tel".equals(scheme)) {
+                        startActivity(new Intent(Intent.ACTION_DIAL, uri));
+                        return true;
+                    }
+
+                    if ("geo".equals(scheme) || "google.navigation".equals(scheme)) {
+                        startActivity(new Intent(Intent.ACTION_VIEW, uri));
+                        return true;
+                    }
+
+                    if ("intent".equals(scheme)) {
+                        Intent intent = Intent.parseUri(url, Intent.URI_INTENT_SCHEME);
+                        startActivity(intent);
+                        return true;
+                    }
+
+                    if (("http".equals(scheme) || "https".equals(scheme)) &&
+                        (host.contains("google.com") && url.toLowerCase().contains("maps") ||
+                         host.contains("maps.google") || host.contains("waze.com"))) {
+                        startActivity(new Intent(Intent.ACTION_VIEW, uri));
+                        return true;
+                    }
+                } catch (Exception ignored) {
+                }
+                return false;
+            }
+
+            @Override
+            public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
+                String url = request != null && request.getUrl() != null ? request.getUrl().toString() : null;
+                return handleExternalUrl(url);
+            }
+
+            @Override
+            public boolean shouldOverrideUrlLoading(WebView view, String url) {
+                return handleExternalUrl(url);
+            }
+
             @Override
             public void onPageFinished(WebView view, String url) {
                 super.onPageFinished(view, url);
@@ -70,7 +121,13 @@ public class MainActivity extends Activity {
                     "window.__DMM_ANDROID_APK=true;" +
                     "document.documentElement.classList.add('dmm-android-apk');" +
                     "document.body.classList.add('dmm-android-apk');" +
-                    "(function(){var s=document.getElementById('dmm-apk-edge-css');if(!s){s=document.createElement('style');s.id='dmm-apk-edge-css';s.textContent='html.dmm-android-apk,body.dmm-android-apk{margin:0!important;padding:0!important;background:#fff!important} body.dmm-android-apk .driver-shell,body.dmm-android-apk .driver-portal-shell,body.dmm-android-apk #driverPortal{max-width:none!important;width:100%!important;margin:0!important;border:0!important;border-radius:0!important;box-shadow:none!important;padding-left:0!important;padding-right:0!important}';document.head.appendChild(s);}})();",
+                    "(function(){" +
+                    "var s=document.getElementById('dmm-apk-edge-css');" +
+                    "if(!s){s=document.createElement('style');s.id='dmm-apk-edge-css';" +
+                    "s.textContent='html.dmm-android-apk,body.dmm-android-apk{margin:0!important;padding:0!important;background:#fff!important;overflow:auto!important;min-height:100%!important} body.dmm-android-apk .driver-shell,body.dmm-android-apk .driver-portal-shell,body.dmm-android-apk #driverPortal{max-width:none!important;width:100%!important;margin:0!important;border:0!important;border-radius:0!important;box-shadow:none!important;padding-left:0!important;padding-right:0!important} body.dmm-android-apk .driver-tab-content,body.dmm-android-apk .driver-content,body.dmm-android-apk .finalise-job-content,body.dmm-android-apk .required-data-content,body.dmm-android-apk [class*=finalise],body.dmm-android-apk [class*=required]{-webkit-overflow-scrolling:touch!important;overscroll-behavior:auto!important}';" +
+                    "document.head.appendChild(s);}" +
+                    "document.documentElement.style.overflow='auto';document.body.style.overflow='auto';" +
+                    "})();",
                     null
                 );
             }
