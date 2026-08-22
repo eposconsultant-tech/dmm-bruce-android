@@ -27,7 +27,9 @@ public class MainActivity extends Activity {
 
         webView = new WebView(this);
         webView.setBackgroundColor(Color.WHITE);
+        webView.setOverScrollMode(View.OVER_SCROLL_NEVER);
         FrameLayout frame = new FrameLayout(this);
+        frame.setBackgroundColor(Color.WHITE);
         frame.addView(webView, new FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
         setContentView(frame);
 
@@ -43,13 +45,28 @@ public class MainActivity extends Activity {
         settings.setLoadWithOverviewMode(true);
         settings.setMediaPlaybackRequiresUserGesture(false);
         settings.setJavaScriptCanOpenWindowsAutomatically(true);
-        settings.setUserAgentString(settings.getUserAgentString() + " DMM-Android-Driver/2.1-v2.17.43");
+        settings.setCacheMode(WebSettings.LOAD_DEFAULT);
+        settings.setUserAgentString(settings.getUserAgentString() + " DMM-Android-Driver/2.2-v2.17.50");
 
         CookieManager cookies = CookieManager.getInstance();
         cookies.setAcceptCookie(true);
         cookies.setAcceptThirdPartyCookies(webView, true);
 
-        webView.setWebViewClient(new WebViewClient());
+        webView.setWebViewClient(new WebViewClient() {
+            @Override
+            public void onPageFinished(WebView view, String url) {
+                super.onPageFinished(view, url);
+                // Explicit native marker. The live portal can use this independently
+                // of the UA to apply APK-only edge-to-edge UI without changing web POC.
+                view.evaluateJavascript(
+                    "window.__DMM_ANDROID_APK=true;" +
+                    "document.documentElement.classList.add('dmm-android-apk');" +
+                    "document.body.classList.add('dmm-android-apk');" +
+                    "(function(){var s=document.getElementById('dmm-apk-edge-css');if(!s){s=document.createElement('style');s.id='dmm-apk-edge-css';s.textContent='html.dmm-android-apk,body.dmm-android-apk{margin:0!important;padding:0!important;background:#fff!important} body.dmm-android-apk .driver-shell,body.dmm-android-apk .driver-portal-shell,body.dmm-android-apk #driverPortal{max-width:none!important;width:100%!important;margin:0!important;border:0!important;border-radius:0!important;box-shadow:none!important;padding-left:0!important;padding-right:0!important}';document.head.appendChild(s);}})();",
+                    null
+                );
+            }
+        });
         webView.setWebChromeClient(new WebChromeClient() {
             @Override
             public boolean onShowFileChooser(WebView webView, ValueCallback<Uri[]> filePathCallback, FileChooserParams fileChooserParams) {
