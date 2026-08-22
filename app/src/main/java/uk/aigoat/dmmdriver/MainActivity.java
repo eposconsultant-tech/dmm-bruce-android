@@ -43,7 +43,7 @@ public class MainActivity extends Activity {
         settings.setLoadWithOverviewMode(true);
         settings.setMediaPlaybackRequiresUserGesture(false);
         settings.setJavaScriptCanOpenWindowsAutomatically(true);
-        settings.setUserAgentString(settings.getUserAgentString() + " DMM-Android-Driver/2.0");
+        settings.setUserAgentString(settings.getUserAgentString() + " DMM-Android-Driver/2.1-v2.17.43");
 
         CookieManager cookies = CookieManager.getInstance();
         cookies.setAcceptCookie(true);
@@ -57,7 +57,6 @@ public class MainActivity extends Activity {
                     MainActivity.this.filePathCallback.onReceiveValue(null);
                 }
                 MainActivity.this.filePathCallback = filePathCallback;
-
                 Intent intent = fileChooserParams.createIntent();
                 intent.addCategory(Intent.CATEGORY_OPENABLE);
                 try {
@@ -70,11 +69,7 @@ public class MainActivity extends Activity {
             }
         });
 
-        if (savedInstanceState == null) {
-            webView.loadUrl(DMM_URL);
-        } else {
-            webView.restoreState(savedInstanceState);
-        }
+        if (savedInstanceState == null) webView.loadUrl(DMM_URL); else webView.restoreState(savedInstanceState);
     }
 
     @Override
@@ -91,26 +86,10 @@ public class MainActivity extends Activity {
     }
 
     private void immersive() {
-        getWindow().getDecorView().setSystemUiVisibility(
-            View.SYSTEM_UI_FLAG_FULLSCREEN | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION |
-            View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY | View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN |
-            View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION | View.SYSTEM_UI_FLAG_LAYOUT_STABLE);
+        getWindow().getDecorView().setSystemUiVisibility(View.SYSTEM_UI_FLAG_FULLSCREEN | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION | View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY | View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN | View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION | View.SYSTEM_UI_FLAG_LAYOUT_STABLE);
     }
 
-    @Override
-    public void onBackPressed() {
-        if (webView != null && webView.canGoBack()) webView.goBack(); else super.onBackPressed();
-    }
-
-    @Override
-    protected void onSaveInstanceState(Bundle outState) {
-        if (webView != null) webView.saveState(outState);
-        super.onSaveInstanceState(outState);
-    }
-
-    @Override
-    public void onWindowFocusChanged(boolean hasFocus) {
-        super.onWindowFocusChanged(hasFocus);
-        if (hasFocus) immersive();
-    }
+    @Override public void onBackPressed() { if (webView != null && webView.canGoBack()) webView.goBack(); else super.onBackPressed(); }
+    @Override protected void onSaveInstanceState(Bundle outState) { if (webView != null) webView.saveState(outState); super.onSaveInstanceState(outState); }
+    @Override public void onWindowFocusChanged(boolean hasFocus) { super.onWindowFocusChanged(hasFocus); if (hasFocus) immersive(); }
 }
