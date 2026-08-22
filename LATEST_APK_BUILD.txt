@@ -1,5 +1,5 @@
-DMM Driver v2.18.05
-Built from commit: 0b129de3a7841bda1acdf762a933bf71ff94bc39
-Workflow run: 32587171434
+DMM Driver v2.18.06
+Built from commit: ec466e1a5c389faf47f772d9e44ccc44719dac6e
+Workflow run: 32587750740
 Release tag: dmm-driver-latest
-APK: DMM-Driver-v2.18.05.apk
+APK: DMM-Driver-v2.18.06.apk
