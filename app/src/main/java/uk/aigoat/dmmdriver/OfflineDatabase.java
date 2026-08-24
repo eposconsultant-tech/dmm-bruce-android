@@ -9,11 +9,13 @@ import android.database.sqlite.SQLiteOpenHelper;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
+import java.util.HashSet;
+import java.util.Set;
 import java.util.UUID;
 
 public class OfflineDatabase extends SQLiteOpenHelper {
     private static final String DB_NAME = "dmm_driver_offline.db";
-    private static final int DB_VERSION = 1;
+    private static final int DB_VERSION = 2;
 
     public OfflineDatabase(Context context) {
         super(context, DB_NAME, null, DB_VERSION);
@@ -79,13 +81,76 @@ public class OfflineDatabase extends SQLiteOpenHelper {
         return out.toString();
     }
 
+    public synchronized String getJobJson(String id) {
+        if (id == null || id.trim().isEmpty()) return null;
+        SQLiteDatabase db = getReadableDatabase();
+        try (Cursor c = db.query("jobs", new String[]{"json"}, "id=?", new String[]{id}, null, null, null, "1")) {
+            if (c.moveToFirst()) return c.getString(0);
+        }
+        return null;
+    }
+
+    private void upsertJob(SQLiteDatabase db, JSONObject job, long now) {
+        String id = job.optString("id", "").trim();
+        if (id.isEmpty()) {
+            id = UUID.randomUUID().toString();
+            try { job.put("id", id); } catch (Exception ignored) {}
+        }
+        String json = job.toString();
+        boolean pending = job.optBoolean("_pendingCloudUpload", false);
+
+        boolean changed = true;
+        try (Cursor c = db.query("jobs", new String[]{"json", "pending"}, "id=?", new String[]{id}, null, null, null, "1")) {
+            if (c.moveToFirst()) {
+                String oldJson = c.getString(0);
+                int oldPending = c.getInt(1);
+                changed = !json.equals(oldJson) || oldPending != (pending ? 1 : 0);
+            }
+        }
+
+        if (changed) {
+            ContentValues cv = new ContentValues();
+            cv.put("id", id);
+            cv.put("json", json);
+            cv.put("pending", pending ? 1 : 0);
+            cv.put("updated_at", now);
+            db.insertWithOnConflict("jobs", null, cv, SQLiteDatabase.CONFLICT_REPLACE);
+        }
+
+        if (pending) {
+            ContentValues q = new ContentValues();
+            q.put("job_id", id);
+            q.put("status", "pending");
+            q.put("updated_at", now);
+            db.insertWithOnConflict("sync_queue", null, q, SQLiteDatabase.CONFLICT_REPLACE);
+        } else {
+            db.delete("sync_queue", "job_id=?", new String[]{id});
+        }
+    }
+
+    public synchronized boolean saveJobJson(String json) {
+        SQLiteDatabase db = getWritableDatabase();
+        db.beginTransaction();
+        try {
+            JSONObject job = new JSONObject(json == null ? "{}" : json);
+            upsertJob(db, job, System.currentTimeMillis());
+            db.setTransactionSuccessful();
+            return true;
+        } catch (Exception ex) {
+            return false;
+        } finally {
+            db.endTransaction();
+        }
+    }
+
     public synchronized boolean setJobsJson(String json) {
         SQLiteDatabase db = getWritableDatabase();
         db.beginTransaction();
         try {
             JSONArray arr = new JSONArray(json == null || json.trim().isEmpty() ? "[]" : json);
-            db.delete("jobs", null, null);
             long now = System.currentTimeMillis();
+            Set<String> incomingIds = new HashSet<>();
+
             for (int i = 0; i < arr.length(); i++) {
                 JSONObject job = arr.optJSONObject(i);
                 if (job == null) continue;
@@ -94,28 +159,36 @@ public class OfflineDatabase extends SQLiteOpenHelper {
                     id = UUID.randomUUID().toString();
                     try { job.put("id", id); } catch (Exception ignored) {}
                 }
-                boolean pending = job.optBoolean("_pendingCloudUpload", false);
-                ContentValues cv = new ContentValues();
-                cv.put("id", id);
-                cv.put("json", job.toString());
-                cv.put("pending", pending ? 1 : 0);
-                cv.put("updated_at", now + i);
-                db.insertWithOnConflict("jobs", null, cv, SQLiteDatabase.CONFLICT_REPLACE);
+                incomingIds.add(id);
+                upsertJob(db, job, now + i);
+            }
 
-                if (pending) {
-                    ContentValues q = new ContentValues();
-                    q.put("job_id", id);
-                    q.put("status", "pending");
-                    q.put("updated_at", now);
-                    db.insertWithOnConflict("sync_queue", null, q, SQLiteDatabase.CONFLICT_REPLACE);
-                } else {
-                    db.delete("sync_queue", "job_id=?", new String[]{id});
+            // Remove only stale downloaded rows. Never delete unsynced pending work just because
+            // an authoritative cloud download does not contain it yet.
+            try (Cursor c = db.query("jobs", new String[]{"id"}, "pending=0", null, null, null, null)) {
+                while (c.moveToNext()) {
+                    String id = c.getString(0);
+                    if (!incomingIds.contains(id)) db.delete("jobs", "id=? AND pending=0", new String[]{id});
                 }
             }
+            db.execSQL("DELETE FROM sync_queue WHERE job_id NOT IN (SELECT id FROM jobs)");
             db.setTransactionSuccessful();
             return true;
         } catch (Exception ex) {
             return false;
+        } finally {
+            db.endTransaction();
+        }
+    }
+
+    public synchronized int clearNonPendingJobs() {
+        SQLiteDatabase db = getWritableDatabase();
+        db.beginTransaction();
+        try {
+            int removed = db.delete("jobs", "pending=0", null);
+            db.execSQL("DELETE FROM sync_queue WHERE job_id NOT IN (SELECT id FROM jobs)");
+            db.setTransactionSuccessful();
+            return removed;
         } finally {
             db.endTransaction();
         }
