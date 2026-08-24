@@ -4,6 +4,7 @@ import android.Manifest;
 import android.app.Activity;
 import android.content.Intent;
 import android.content.pm.PackageManager;
+import android.graphics.Color;
 import android.net.Uri;
 import android.os.Bundle;
 import android.view.View;
@@ -16,7 +17,6 @@ import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
 import android.widget.FrameLayout;
-import android.graphics.Color;
 
 public class MainActivity extends Activity {
     private static final String DMM_URL = "https://dmm.aigoat.uk/";
@@ -26,19 +26,23 @@ public class MainActivity extends Activity {
     private WebView webView;
     private ValueCallback<Uri[]> filePathCallback;
     private PermissionRequest pendingCameraPermissionRequest;
+    private OfflineDatabase offlineDatabase;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         immersive();
 
+        offlineDatabase = new OfflineDatabase(this);
+
         webView = new WebView(this);
         webView.setBackgroundColor(Color.WHITE);
         webView.setOverScrollMode(View.OVER_SCROLL_IF_CONTENT_SCROLLS);
         webView.setVerticalScrollBarEnabled(true);
-        webView.setHorizontalScrollBarEnabled(true);
+        webView.setHorizontalScrollBarEnabled(false);
         webView.setScrollbarFadingEnabled(false);
         webView.setScrollBarStyle(View.SCROLLBARS_INSIDE_OVERLAY);
+        webView.addJavascriptInterface(new OfflineBridge(offlineDatabase), "DMMNative");
 
         FrameLayout frame = new FrameLayout(this);
         frame.setBackgroundColor(Color.WHITE);
@@ -61,8 +65,10 @@ public class MainActivity extends Activity {
         settings.setMediaPlaybackRequiresUserGesture(false);
         settings.setJavaScriptCanOpenWindowsAutomatically(true);
         settings.setSupportMultipleWindows(false);
+        settings.setAllowFileAccess(true);
+        settings.setAllowContentAccess(true);
         settings.setCacheMode(WebSettings.LOAD_DEFAULT);
-        settings.setUserAgentString(settings.getUserAgentString() + " DMM-Android-Driver/3.02");
+        settings.setUserAgentString(settings.getUserAgentString() + " DMM-Android-Driver/3.02 SQLiteOffline/1");
 
         CookieManager cookies = CookieManager.getInstance();
         cookies.setAcceptCookie(true);
@@ -115,14 +121,14 @@ public class MainActivity extends Activity {
                 super.onPageFinished(view, url);
                 view.evaluateJavascript(
                     "window.__DMM_ANDROID_APK=true;" +
+                    "window.__DMM_ANDROID_SQLITE=true;" +
                     "document.documentElement.classList.add('dmm-android-apk');" +
                     "document.body.classList.add('dmm-android-apk');" +
                     "(function(){" +
                     "var s=document.getElementById('dmm-apk-edge-css');" +
                     "if(!s){s=document.createElement('style');s.id='dmm-apk-edge-css';" +
-                    "s.textContent='html.dmm-android-apk,body.dmm-android-apk{margin:0!important;padding:0!important;background:#fff!important;overflow:auto!important;min-height:100%!important} body.dmm-android-apk .driver-shell,body.dmm-android-apk .driver-portal-shell,body.dmm-android-apk #driverPortal{max-width:none!important;width:100%!important;margin:0!important;border:0!important;border-radius:0!important;box-shadow:none!important;padding-left:0!important;padding-right:0!important} body.dmm-android-apk .driver-tab-content,body.dmm-android-apk .driver-content,body.dmm-android-apk .finalise-job-content,body.dmm-android-apk .required-data-content,body.dmm-android-apk [class*=finalise],body.dmm-android-apk [class*=required],body.dmm-android-apk [class*=terms]{-webkit-overflow-scrolling:touch!important;overscroll-behavior:auto!important}';" +
+                    "s.textContent='html.dmm-android-apk,body.dmm-android-apk{margin:0!important;padding:0!important;background:#fff!important;min-height:100%!important} body.dmm-android-apk .driver-shell,body.dmm-android-apk .driver-portal-shell,body.dmm-android-apk #driverPortal{max-width:none!important;width:100%!important;margin:0!important;border:0!important;border-radius:0!important;box-shadow:none!important;padding-left:0!important;padding-right:0!important} body.dmm-android-apk .driver-selected-pane{overflow-y:auto!important;overflow-x:hidden!important;-webkit-overflow-scrolling:touch!important;touch-action:pan-y!important} body.dmm-android-apk .driver-main-stack,body.dmm-android-apk .driver-job-v3,body.dmm-android-apk .driver-job-detail-v3,body.dmm-android-apk .driver-terms-inline{overflow:visible!important;max-height:none!important;height:auto!important}';" +
                     "document.head.appendChild(s);}" +
-                    "document.documentElement.style.overflow='auto';document.body.style.overflow='auto';" +
                     "})();",
                     null
                 );
@@ -150,9 +156,15 @@ public class MainActivity extends Activity {
                 runOnUiThread(() -> {
                     boolean wantsCamera = false;
                     for (String resource : request.getResources()) {
-                        if (PermissionRequest.RESOURCE_VIDEO_CAPTURE.equals(resource)) { wantsCamera = true; break; }
+                        if (PermissionRequest.RESOURCE_VIDEO_CAPTURE.equals(resource)) {
+                            wantsCamera = true;
+                            break;
+                        }
                     }
-                    if (!wantsCamera) { request.deny(); return; }
+                    if (!wantsCamera) {
+                        request.deny();
+                        return;
+                    }
                     if (checkSelfPermission(Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) {
                         request.grant(new String[]{PermissionRequest.RESOURCE_VIDEO_CAPTURE});
                     } else {
@@ -163,7 +175,8 @@ public class MainActivity extends Activity {
             }
         });
 
-        if (savedInstanceState == null) webView.loadUrl(DMM_URL); else webView.restoreState(savedInstanceState);
+        if (savedInstanceState == null) webView.loadUrl(DMM_URL);
+        else webView.restoreState(savedInstanceState);
     }
 
     @Override
@@ -185,22 +198,28 @@ public class MainActivity extends Activity {
         if (requestCode == CAMERA_PERMISSION_REQUEST && pendingCameraPermissionRequest != null) {
             if (grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
                 pendingCameraPermissionRequest.grant(new String[]{PermissionRequest.RESOURCE_VIDEO_CAPTURE});
-            } else pendingCameraPermissionRequest.deny();
+            } else {
+                pendingCameraPermissionRequest.deny();
+            }
             pendingCameraPermissionRequest = null;
         }
     }
 
     private void immersive() {
         getWindow().getDecorView().setSystemUiVisibility(
-            View.SYSTEM_UI_FLAG_FULLSCREEN | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION |
-            View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY | View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN |
-            View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION | View.SYSTEM_UI_FLAG_LAYOUT_STABLE
+            View.SYSTEM_UI_FLAG_FULLSCREEN |
+            View.SYSTEM_UI_FLAG_HIDE_NAVIGATION |
+            View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY |
+            View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN |
+            View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION |
+            View.SYSTEM_UI_FLAG_LAYOUT_STABLE
         );
     }
 
     @Override
     public void onBackPressed() {
-        if (webView != null && webView.canGoBack()) webView.goBack(); else super.onBackPressed();
+        if (webView != null && webView.canGoBack()) webView.goBack();
+        else super.onBackPressed();
     }
 
     @Override
@@ -213,5 +232,19 @@ public class MainActivity extends Activity {
     public void onWindowFocusChanged(boolean hasFocus) {
         super.onWindowFocusChanged(hasFocus);
         if (hasFocus) immersive();
+    }
+
+    @Override
+    protected void onDestroy() {
+        if (webView != null) {
+            webView.removeJavascriptInterface("DMMNative");
+            webView.destroy();
+            webView = null;
+        }
+        if (offlineDatabase != null) {
+            offlineDatabase.close();
+            offlineDatabase = null;
+        }
+        super.onDestroy();
     }
 }
