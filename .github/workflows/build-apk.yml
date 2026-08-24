@@ -44,7 +44,7 @@ jobs:
           gh release delete dmm-driver-latest --cleanup-tag --yes || true
           gh release create dmm-driver-latest DMM-Driver-v2.18.34.apk \
             --title "DMM Driver v2.18.34" \
-            --notes "Driver APK linked to https://dmm.aigoat.uk. Includes hardened offline cache mode, online/offline connectivity events for pending upload sync, portrait/scroll support, camera/file chooser, Call and Directions handling."
+            --notes "Final v2.18.34 wrapper for https://dmm.aigoat.uk with offline cached shell support, Android connectivity handoff to web pending-upload sync, portrait/scroll support, camera/file chooser, Call and Directions handling."
 
       - name: Record successful build
         run: |
