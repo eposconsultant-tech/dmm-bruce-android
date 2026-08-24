@@ -2,8 +2,14 @@ package uk.aigoat.dmmdriver;
 
 import android.Manifest;
 import android.app.Activity;
+import android.content.Context;
 import android.content.Intent;
 import android.content.pm.PackageManager;
+import android.graphics.Color;
+import android.net.ConnectivityManager;
+import android.net.Network;
+import android.net.NetworkInfo;
+import android.net.NetworkRequest;
 import android.net.Uri;
 import android.os.Bundle;
 import android.view.View;
@@ -16,7 +22,6 @@ import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
 import android.widget.FrameLayout;
-import android.graphics.Color;
 
 public class MainActivity extends Activity {
     private static final String DMM_URL = "https://dmm.aigoat.uk/";
@@ -26,6 +31,8 @@ public class MainActivity extends Activity {
     private WebView webView;
     private ValueCallback<Uri[]> filePathCallback;
     private PermissionRequest pendingCameraPermissionRequest;
+    private ConnectivityManager connectivityManager;
+    private ConnectivityManager.NetworkCallback networkCallback;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -61,8 +68,8 @@ public class MainActivity extends Activity {
         settings.setMediaPlaybackRequiresUserGesture(false);
         settings.setJavaScriptCanOpenWindowsAutomatically(true);
         settings.setSupportMultipleWindows(false);
-        settings.setCacheMode(WebSettings.LOAD_DEFAULT);
-        settings.setUserAgentString(settings.getUserAgentString() + " DMM-Android-Driver/2.18.14");
+        settings.setCacheMode(isOnline() ? WebSettings.LOAD_DEFAULT : WebSettings.LOAD_CACHE_ELSE_NETWORK);
+        settings.setUserAgentString(settings.getUserAgentString() + " DMM-Android-Driver/2.18.34");
 
         CookieManager cookies = CookieManager.getInstance();
         cookies.setAcceptCookie(true);
@@ -93,7 +100,7 @@ public class MainActivity extends Activity {
                     }
 
                     if (("http".equals(scheme) || "https".equals(scheme)) &&
-                        (host.contains("google.com") && url.toLowerCase().contains("maps") ||
+                        ((host.contains("google.com") && url.toLowerCase().contains("maps")) ||
                          host.contains("maps.google") || host.contains("waze.com"))) {
                         startActivity(new Intent(Intent.ACTION_VIEW, uri));
                         return true;
@@ -117,19 +124,7 @@ public class MainActivity extends Activity {
             @Override
             public void onPageFinished(WebView view, String url) {
                 super.onPageFinished(view, url);
-                view.evaluateJavascript(
-                    "window.__DMM_ANDROID_APK=true;" +
-                    "document.documentElement.classList.add('dmm-android-apk');" +
-                    "document.body.classList.add('dmm-android-apk');" +
-                    "(function(){" +
-                    "var s=document.getElementById('dmm-apk-edge-css');" +
-                    "if(!s){s=document.createElement('style');s.id='dmm-apk-edge-css';" +
-                    "s.textContent='html.dmm-android-apk,body.dmm-android-apk{margin:0!important;padding:0!important;background:#fff!important;overflow:auto!important;min-height:100%!important} body.dmm-android-apk .driver-shell,body.dmm-android-apk .driver-portal-shell,body.dmm-android-apk #driverPortal{max-width:none!important;width:100%!important;margin:0!important;border:0!important;border-radius:0!important;box-shadow:none!important;padding-left:0!important;padding-right:0!important} body.dmm-android-apk .driver-tab-content,body.dmm-android-apk .driver-content,body.dmm-android-apk .finalise-job-content,body.dmm-android-apk .required-data-content,body.dmm-android-apk [class*=finalise],body.dmm-android-apk [class*=required]{-webkit-overflow-scrolling:touch!important;overscroll-behavior:auto!important}';" +
-                    "document.head.appendChild(s);}" +
-                    "document.documentElement.style.overflow='auto';document.body.style.overflow='auto';" +
-                    "})();",
-                    null
-                );
+                injectAndroidBridgeState();
             }
         });
 
@@ -177,11 +172,80 @@ public class MainActivity extends Activity {
             }
         });
 
+        registerConnectivityWatcher();
+
         if (savedInstanceState == null) {
             webView.loadUrl(DMM_URL);
         } else {
             webView.restoreState(savedInstanceState);
         }
+    }
+
+    private boolean isOnline() {
+        try {
+            ConnectivityManager cm = (ConnectivityManager) getSystemService(Context.CONNECTIVITY_SERVICE);
+            NetworkInfo info = cm != null ? cm.getActiveNetworkInfo() : null;
+            return info != null && info.isConnected();
+        } catch (Exception ignored) {
+            return false;
+        }
+    }
+
+    private void registerConnectivityWatcher() {
+        connectivityManager = (ConnectivityManager) getSystemService(Context.CONNECTIVITY_SERVICE);
+        if (connectivityManager == null) return;
+
+        networkCallback = new ConnectivityManager.NetworkCallback() {
+            @Override
+            public void onAvailable(Network network) {
+                runOnUiThread(() -> {
+                    if (webView == null) return;
+                    webView.getSettings().setCacheMode(WebSettings.LOAD_DEFAULT);
+                    webView.evaluateJavascript(
+                        "window.__DMM_ANDROID_ONLINE=true;window.dispatchEvent(new Event('online'));",
+                        null
+                    );
+                });
+            }
+
+            @Override
+            public void onLost(Network network) {
+                runOnUiThread(() -> {
+                    if (webView == null) return;
+                    webView.getSettings().setCacheMode(WebSettings.LOAD_CACHE_ELSE_NETWORK);
+                    webView.evaluateJavascript(
+                        "window.__DMM_ANDROID_ONLINE=false;window.dispatchEvent(new Event('offline'));",
+                        null
+                    );
+                });
+            }
+        };
+
+        try {
+            NetworkRequest request = new NetworkRequest.Builder().build();
+            connectivityManager.registerNetworkCallback(request, networkCallback);
+        } catch (Exception ignored) {
+        }
+    }
+
+    private void injectAndroidBridgeState() {
+        if (webView == null) return;
+        final boolean online = isOnline();
+        webView.evaluateJavascript(
+            "window.__DMM_ANDROID_APK=true;" +
+            "window.__DMM_ANDROID_ONLINE=" + (online ? "true" : "false") + ";" +
+            "document.documentElement.classList.add('dmm-android-apk');" +
+            "document.body.classList.add('dmm-android-apk');" +
+            "(function(){" +
+            "var s=document.getElementById('dmm-apk-edge-css');" +
+            "if(!s){s=document.createElement('style');s.id='dmm-apk-edge-css';" +
+            "s.textContent='html.dmm-android-apk,body.dmm-android-apk{margin:0!important;padding:0!important;background:#fff!important;overflow:auto!important;min-height:100%!important} body.dmm-android-apk .driver-shell,body.dmm-android-apk .driver-portal-shell,body.dmm-android-apk #driverPortal{max-width:none!important;width:100%!important;margin:0!important;border:0!important;border-radius:0!important;box-shadow:none!important;padding-left:0!important;padding-right:0!important} body.dmm-android-apk .driver-tab-content,body.dmm-android-apk .driver-content,body.dmm-android-apk .finalise-job-content,body.dmm-android-apk .required-data-content,body.dmm-android-apk [class*=finalise],body.dmm-android-apk [class*=required],body.dmm-android-apk [class*=terms]{-webkit-overflow-scrolling:touch!important;overscroll-behavior:auto!important}';" +
+            "document.head.appendChild(s);}" +
+            "document.documentElement.style.overflow='auto';document.body.style.overflow='auto';" +
+            "window.dispatchEvent(new Event(window.__DMM_ANDROID_ONLINE?'online':'offline'));" +
+            "})();",
+            null
+        );
     }
 
     @Override
@@ -240,5 +304,20 @@ public class MainActivity extends Activity {
     public void onWindowFocusChanged(boolean hasFocus) {
         super.onWindowFocusChanged(hasFocus);
         if (hasFocus) immersive();
+    }
+
+    @Override
+    protected void onDestroy() {
+        if (connectivityManager != null && networkCallback != null) {
+            try {
+                connectivityManager.unregisterNetworkCallback(networkCallback);
+            } catch (Exception ignored) {
+            }
+        }
+        if (webView != null) {
+            webView.destroy();
+            webView = null;
+        }
+        super.onDestroy();
     }
 }
