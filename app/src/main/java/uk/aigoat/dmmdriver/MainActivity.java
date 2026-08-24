@@ -8,6 +8,7 @@ import android.content.pm.PackageManager;
 import android.graphics.Color;
 import android.net.ConnectivityManager;
 import android.net.Network;
+import android.net.NetworkCapabilities;
 import android.net.NetworkInfo;
 import android.net.NetworkRequest;
 import android.net.Uri;
@@ -198,34 +199,32 @@ public class MainActivity extends Activity {
         networkCallback = new ConnectivityManager.NetworkCallback() {
             @Override
             public void onAvailable(Network network) {
-                runOnUiThread(() -> {
-                    if (webView == null) return;
-                    webView.getSettings().setCacheMode(WebSettings.LOAD_DEFAULT);
-                    webView.evaluateJavascript(
-                        "window.__DMM_ANDROID_ONLINE=true;window.dispatchEvent(new Event('online'));",
-                        null
-                    );
-                });
+                runOnUiThread(() -> applyConnectivityState(true));
             }
 
             @Override
             public void onLost(Network network) {
-                runOnUiThread(() -> {
-                    if (webView == null) return;
-                    webView.getSettings().setCacheMode(WebSettings.LOAD_CACHE_ELSE_NETWORK);
-                    webView.evaluateJavascript(
-                        "window.__DMM_ANDROID_ONLINE=false;window.dispatchEvent(new Event('offline'));",
-                        null
-                    );
-                });
+                runOnUiThread(() -> applyConnectivityState(isOnline()));
             }
         };
 
         try {
-            NetworkRequest request = new NetworkRequest.Builder().build();
+            NetworkRequest request = new NetworkRequest.Builder()
+                .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+                .build();
             connectivityManager.registerNetworkCallback(request, networkCallback);
         } catch (Exception ignored) {
         }
+    }
+
+    private void applyConnectivityState(boolean online) {
+        if (webView == null) return;
+        webView.getSettings().setCacheMode(online ? WebSettings.LOAD_DEFAULT : WebSettings.LOAD_CACHE_ELSE_NETWORK);
+        webView.evaluateJavascript(
+            "window.__DMM_ANDROID_ONLINE=" + (online ? "true" : "false") + ";" +
+            "window.dispatchEvent(new Event('" + (online ? "online" : "offline") + "'));",
+            null
+        );
     }
 
     private void injectAndroidBridgeState() {
