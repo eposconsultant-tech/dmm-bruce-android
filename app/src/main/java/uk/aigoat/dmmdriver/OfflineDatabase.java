@@ -9,16 +9,25 @@ import android.database.sqlite.SQLiteOpenHelper;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
 import java.util.HashSet;
 import java.util.Set;
 import java.util.UUID;
 
 public class OfflineDatabase extends SQLiteOpenHelper {
     private static final String DB_NAME = "dmm_driver_offline.db";
-    private static final int DB_VERSION = 2;
+    private static final int DB_VERSION = 3;
 
     public OfflineDatabase(Context context) {
         super(context, DB_NAME, null, DB_VERSION);
+    }
+
+    @Override
+    public void onConfigure(SQLiteDatabase db) {
+        super.onConfigure(db);
+        db.setForeignKeyConstraintsEnabled(true);
+        db.enableWriteAheadLogging();
     }
 
     @Override
@@ -28,11 +37,20 @@ public class OfflineDatabase extends SQLiteOpenHelper {
         db.execSQL("CREATE TABLE IF NOT EXISTS sync_queue (job_id TEXT PRIMARY KEY, status TEXT NOT NULL DEFAULT 'pending', attempts INTEGER NOT NULL DEFAULT 0, last_error TEXT, updated_at INTEGER NOT NULL)");
         db.execSQL("CREATE TABLE IF NOT EXISTS kv_store (k TEXT PRIMARY KEY, v TEXT, updated_at INTEGER NOT NULL)");
         db.execSQL("CREATE TABLE IF NOT EXISTS attachments (id TEXT PRIMARY KEY, job_id TEXT, kind TEXT, local_path TEXT, remote_url TEXT, status TEXT NOT NULL DEFAULT 'local', updated_at INTEGER NOT NULL)");
+        db.execSQL("CREATE TABLE IF NOT EXISTS completion_commits (job_id TEXT PRIMARY KEY, checksum TEXT NOT NULL, payload_json TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'pending', committed_at INTEGER NOT NULL, synced_at INTEGER)");
     }
 
     @Override
     public void onUpgrade(SQLiteDatabase db, int oldVersion, int newVersion) {
         onCreate(db);
+    }
+
+    private static String sha256(String value) throws Exception {
+        MessageDigest md = MessageDigest.getInstance("SHA-256");
+        byte[] digest = md.digest(value.getBytes(StandardCharsets.UTF_8));
+        StringBuilder out = new StringBuilder();
+        for (byte b : digest) out.append(String.format("%02x", b));
+        return out.toString();
     }
 
     public synchronized String getItem(String key) {
@@ -59,8 +77,8 @@ public class OfflineDatabase extends SQLiteOpenHelper {
         if ("dmmJobsV3".equals(key)) {
             db.beginTransaction();
             try {
-                db.delete("jobs", null, null);
-                db.delete("sync_queue", null, null);
+                db.delete("jobs", "pending=0", null);
+                db.execSQL("DELETE FROM sync_queue WHERE job_id NOT IN (SELECT id FROM jobs)");
                 db.setTransactionSuccessful();
             } finally {
                 db.endTransaction();
@@ -90,31 +108,22 @@ public class OfflineDatabase extends SQLiteOpenHelper {
         return null;
     }
 
-    private void upsertJob(SQLiteDatabase db, JSONObject job, long now) {
+    private String upsertJob(SQLiteDatabase db, JSONObject job, long now) throws Exception {
         String id = job.optString("id", "").trim();
         if (id.isEmpty()) {
             id = UUID.randomUUID().toString();
-            try { job.put("id", id); } catch (Exception ignored) {}
+            job.put("id", id);
         }
         String json = job.toString();
         boolean pending = job.optBoolean("_pendingCloudUpload", false);
 
-        boolean changed = true;
-        try (Cursor c = db.query("jobs", new String[]{"json", "pending"}, "id=?", new String[]{id}, null, null, null, "1")) {
-            if (c.moveToFirst()) {
-                String oldJson = c.getString(0);
-                int oldPending = c.getInt(1);
-                changed = !json.equals(oldJson) || oldPending != (pending ? 1 : 0);
-            }
-        }
-
-        if (changed) {
-            ContentValues cv = new ContentValues();
-            cv.put("id", id);
-            cv.put("json", json);
-            cv.put("pending", pending ? 1 : 0);
-            cv.put("updated_at", now);
-            db.insertWithOnConflict("jobs", null, cv, SQLiteDatabase.CONFLICT_REPLACE);
+        ContentValues cv = new ContentValues();
+        cv.put("id", id);
+        cv.put("json", json);
+        cv.put("pending", pending ? 1 : 0);
+        cv.put("updated_at", now);
+        if (db.insertWithOnConflict("jobs", null, cv, SQLiteDatabase.CONFLICT_REPLACE) == -1) {
+            throw new IllegalStateException("jobs upsert failed");
         }
 
         if (pending) {
@@ -122,10 +131,13 @@ public class OfflineDatabase extends SQLiteOpenHelper {
             q.put("job_id", id);
             q.put("status", "pending");
             q.put("updated_at", now);
-            db.insertWithOnConflict("sync_queue", null, q, SQLiteDatabase.CONFLICT_REPLACE);
+            if (db.insertWithOnConflict("sync_queue", null, q, SQLiteDatabase.CONFLICT_REPLACE) == -1) {
+                throw new IllegalStateException("sync queue upsert failed");
+            }
         } else {
             db.delete("sync_queue", "job_id=?", new String[]{id});
         }
+        return id;
     }
 
     public synchronized boolean saveJobJson(String json) {
@@ -143,6 +155,94 @@ public class OfflineDatabase extends SQLiteOpenHelper {
         }
     }
 
+    public synchronized String completeJobAtomic(String json) {
+        SQLiteDatabase db = getWritableDatabase();
+        db.beginTransaction();
+        try {
+            JSONObject job = new JSONObject(json == null ? "{}" : json);
+            job.put("_pendingCloudUpload", true);
+            String status = job.optString("status", "");
+            if (!"delivered".equalsIgnoreCase(status)) throw new IllegalStateException("completion status must be Delivered");
+            String id = upsertJob(db, job, System.currentTimeMillis());
+            String payload = job.toString();
+            String checksum = sha256(payload);
+
+            ContentValues commit = new ContentValues();
+            commit.put("job_id", id);
+            commit.put("checksum", checksum);
+            commit.put("payload_json", payload);
+            commit.put("status", "pending");
+            commit.put("committed_at", System.currentTimeMillis());
+            if (db.insertWithOnConflict("completion_commits", null, commit, SQLiteDatabase.CONFLICT_REPLACE) == -1) {
+                throw new IllegalStateException("completion commit insert failed");
+            }
+
+            String storedJson = null;
+            int storedPending = 0;
+            try (Cursor c = db.query("jobs", new String[]{"json", "pending"}, "id=?", new String[]{id}, null, null, null, "1")) {
+                if (!c.moveToFirst()) throw new IllegalStateException("job read-back failed");
+                storedJson = c.getString(0);
+                storedPending = c.getInt(1);
+            }
+            int queueCount = 0;
+            try (Cursor c = db.rawQuery("SELECT COUNT(*) FROM sync_queue WHERE job_id=? AND status='pending'", new String[]{id})) {
+                if (c.moveToFirst()) queueCount = c.getInt(0);
+            }
+            if (storedPending != 1 || queueCount != 1) throw new IllegalStateException("pending queue verification failed");
+            String storedChecksum = sha256(storedJson);
+            if (!checksum.equals(storedChecksum)) throw new IllegalStateException("payload checksum verification failed");
+            JSONObject verified = new JSONObject(storedJson);
+            if (!"delivered".equalsIgnoreCase(verified.optString("status", ""))) throw new IllegalStateException("Delivered status verification failed");
+
+            db.setTransactionSuccessful();
+            JSONObject out = new JSONObject();
+            out.put("ok", true);
+            out.put("id", id);
+            out.put("pending", true);
+            out.put("status", verified.optString("status", ""));
+            out.put("checksum", checksum);
+            out.put("bytes", storedJson == null ? 0 : storedJson.getBytes(StandardCharsets.UTF_8).length);
+            return out.toString();
+        } catch (Exception ex) {
+            JSONObject out = new JSONObject();
+            try { out.put("ok", false); out.put("error", ex.getMessage() == null ? ex.getClass().getSimpleName() : ex.getMessage()); } catch (Exception ignored) {}
+            return out.toString();
+        } finally {
+            db.endTransaction();
+        }
+    }
+
+    public synchronized boolean markJobSynced(String id) {
+        if (id == null || id.trim().isEmpty()) return false;
+        SQLiteDatabase db = getWritableDatabase();
+        db.beginTransaction();
+        try {
+            String json = null;
+            try (Cursor c = db.query("jobs", new String[]{"json"}, "id=?", new String[]{id}, null, null, null, "1")) {
+                if (c.moveToFirst()) json = c.getString(0);
+            }
+            if (json == null) return false;
+            JSONObject job = new JSONObject(json);
+            job.remove("_pendingCloudUpload");
+            ContentValues cv = new ContentValues();
+            cv.put("json", job.toString());
+            cv.put("pending", 0);
+            cv.put("updated_at", System.currentTimeMillis());
+            if (db.update("jobs", cv, "id=?", new String[]{id}) != 1) throw new IllegalStateException("job sync update failed");
+            db.delete("sync_queue", "job_id=?", new String[]{id});
+            ContentValues cc = new ContentValues();
+            cc.put("status", "synced");
+            cc.put("synced_at", System.currentTimeMillis());
+            db.update("completion_commits", cc, "job_id=?", new String[]{id});
+            db.setTransactionSuccessful();
+            return true;
+        } catch (Exception ex) {
+            return false;
+        } finally {
+            db.endTransaction();
+        }
+    }
+
     public synchronized boolean setJobsJson(String json) {
         SQLiteDatabase db = getWritableDatabase();
         db.beginTransaction();
@@ -150,21 +250,14 @@ public class OfflineDatabase extends SQLiteOpenHelper {
             JSONArray arr = new JSONArray(json == null || json.trim().isEmpty() ? "[]" : json);
             long now = System.currentTimeMillis();
             Set<String> incomingIds = new HashSet<>();
-
             for (int i = 0; i < arr.length(); i++) {
                 JSONObject job = arr.optJSONObject(i);
                 if (job == null) continue;
                 String id = job.optString("id", "").trim();
-                if (id.isEmpty()) {
-                    id = UUID.randomUUID().toString();
-                    try { job.put("id", id); } catch (Exception ignored) {}
-                }
+                if (id.isEmpty()) { id = UUID.randomUUID().toString(); job.put("id", id); }
                 incomingIds.add(id);
                 upsertJob(db, job, now + i);
             }
-
-            // Remove only stale downloaded rows. Never delete unsynced pending work just because
-            // an authoritative cloud download does not contain it yet.
             try (Cursor c = db.query("jobs", new String[]{"id"}, "pending=0", null, null, null, null)) {
                 while (c.moveToNext()) {
                     String id = c.getString(0);
@@ -196,20 +289,39 @@ public class OfflineDatabase extends SQLiteOpenHelper {
 
     public synchronized int pendingCount() {
         SQLiteDatabase db = getReadableDatabase();
-        try (Cursor c = db.rawQuery("SELECT COUNT(*) FROM jobs WHERE pending=1", null)) {
+        try (Cursor c = db.rawQuery("SELECT COUNT(*) FROM sync_queue WHERE status='pending'", null)) {
             return c.moveToFirst() ? c.getInt(0) : 0;
         }
     }
 
+    public synchronized String pendingDetailsJson() {
+        JSONArray out = new JSONArray();
+        SQLiteDatabase db = getReadableDatabase();
+        try (Cursor c = db.rawQuery("SELECT q.job_id,q.status,q.attempts,q.last_error,q.updated_at,j.json FROM sync_queue q LEFT JOIN jobs j ON j.id=q.job_id ORDER BY q.updated_at ASC", null)) {
+            while (c.moveToNext()) {
+                try {
+                    JSONObject row = new JSONObject();
+                    row.put("jobId", c.getString(0));
+                    row.put("status", c.getString(1));
+                    row.put("attempts", c.getInt(2));
+                    row.put("lastError", c.isNull(3) ? JSONObject.NULL : c.getString(3));
+                    row.put("updatedAt", c.getLong(4));
+                    if (!c.isNull(5)) row.put("job", new JSONObject(c.getString(5)));
+                    out.put(row);
+                } catch (Exception ignored) {}
+            }
+        }
+        return out.toString();
+    }
+
     public synchronized String statsJson() {
-        int jobs = 0, pending = 0, kv = 0;
+        int jobs = 0, pending = 0, kv = 0, commits = 0;
         SQLiteDatabase db = getReadableDatabase();
         try (Cursor c = db.rawQuery("SELECT COUNT(*), COALESCE(SUM(pending),0) FROM jobs", null)) {
             if (c.moveToFirst()) { jobs = c.getInt(0); pending = c.getInt(1); }
         }
-        try (Cursor c = db.rawQuery("SELECT COUNT(*) FROM kv_store", null)) {
-            if (c.moveToFirst()) kv = c.getInt(0);
-        }
-        return "{\"jobs\":" + jobs + ",\"pending\":" + pending + ",\"kv\":" + kv + ",\"dbVersion\":" + DB_VERSION + "}";
+        try (Cursor c = db.rawQuery("SELECT COUNT(*) FROM kv_store", null)) { if (c.moveToFirst()) kv = c.getInt(0); }
+        try (Cursor c = db.rawQuery("SELECT COUNT(*) FROM completion_commits", null)) { if (c.moveToFirst()) commits = c.getInt(0); }
+        return "{\"jobs\":" + jobs + ",\"pending\":" + pending + ",\"kv\":" + kv + ",\"completionCommits\":" + commits + ",\"dbVersion\":" + DB_VERSION + "}";
     }
 }
