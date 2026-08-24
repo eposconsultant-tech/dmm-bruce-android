@@ -10,6 +10,8 @@
         android:allowBackup="false"
         android:usesCleartextTraffic="false"
         android:label="Direct Mini Mix Driver"
+        android:icon="@drawable/aigoat_launcher"
+        android:roundIcon="@drawable/aigoat_launcher"
         android:theme="@style/AppTheme">
 
         <activity
