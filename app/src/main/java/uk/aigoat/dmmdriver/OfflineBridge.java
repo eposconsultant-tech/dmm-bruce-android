@@ -35,6 +35,21 @@ public class OfflineBridge {
     }
 
     @JavascriptInterface
+    public boolean saveJobJson(String json) {
+        try { return db.saveJobJson(json); } catch (Exception ex) { return false; }
+    }
+
+    @JavascriptInterface
+    public String getJobJson(String id) {
+        try { return db.getJobJson(id); } catch (Exception ex) { return null; }
+    }
+
+    @JavascriptInterface
+    public int clearNonPendingJobs() {
+        try { return db.clearNonPendingJobs(); } catch (Exception ex) { return 0; }
+    }
+
+    @JavascriptInterface
     public int pendingCount() {
         try { return db.pendingCount(); } catch (Exception ex) { return 0; }
     }
@@ -46,6 +61,6 @@ public class OfflineBridge {
 
     @JavascriptInterface
     public String engine() {
-        return "sqlite-v1";
+        return "sqlite-v2";
     }
 }
