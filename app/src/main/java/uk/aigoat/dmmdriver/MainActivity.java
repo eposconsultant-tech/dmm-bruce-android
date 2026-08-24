@@ -22,229 +22,32 @@ public class MainActivity extends Activity {
     private static final String DMM_URL = "https://dmm.aigoat.uk/";
     private static final int FILE_CHOOSER_REQUEST = 2001;
     private static final int CAMERA_PERMISSION_REQUEST = 2002;
-
     private WebView webView;
     private ValueCallback<Uri[]> filePathCallback;
     private PermissionRequest pendingCameraPermissionRequest;
     private OfflineDatabase offlineDatabase;
 
-    @Override
-    protected void onCreate(Bundle savedInstanceState) {
-        super.onCreate(savedInstanceState);
-        immersive();
-
-        offlineDatabase = new OfflineDatabase(this);
-
-        webView = new WebView(this);
-        webView.setBackgroundColor(Color.WHITE);
-        webView.setOverScrollMode(View.OVER_SCROLL_IF_CONTENT_SCROLLS);
-        webView.setVerticalScrollBarEnabled(true);
-        webView.setHorizontalScrollBarEnabled(false);
-        webView.setScrollbarFadingEnabled(false);
-        webView.setScrollBarStyle(View.SCROLLBARS_INSIDE_OVERLAY);
-        webView.addJavascriptInterface(new OfflineBridge(offlineDatabase), "DMMNative");
-
-        FrameLayout frame = new FrameLayout(this);
-        frame.setBackgroundColor(Color.WHITE);
-        frame.addView(webView, new FrameLayout.LayoutParams(
-            FrameLayout.LayoutParams.MATCH_PARENT,
-            FrameLayout.LayoutParams.MATCH_PARENT
-        ));
-        setContentView(frame);
-
-        WebSettings settings = webView.getSettings();
-        settings.setJavaScriptEnabled(true);
-        settings.setDomStorageEnabled(true);
-        settings.setDatabaseEnabled(true);
-        settings.setLoadsImagesAutomatically(true);
-        settings.setSupportZoom(true);
-        settings.setBuiltInZoomControls(true);
-        settings.setDisplayZoomControls(false);
-        settings.setUseWideViewPort(true);
-        settings.setLoadWithOverviewMode(true);
-        settings.setMediaPlaybackRequiresUserGesture(false);
-        settings.setJavaScriptCanOpenWindowsAutomatically(true);
-        settings.setSupportMultipleWindows(false);
-        settings.setAllowFileAccess(true);
-        settings.setAllowContentAccess(true);
-        settings.setCacheMode(WebSettings.LOAD_DEFAULT);
-        settings.setUserAgentString(settings.getUserAgentString() + " DMM-Android-Driver/3.02 SQLiteOffline/1");
-
-        CookieManager cookies = CookieManager.getInstance();
-        cookies.setAcceptCookie(true);
-        cookies.setAcceptThirdPartyCookies(webView, true);
-
-        webView.setWebViewClient(new WebViewClient() {
-            private boolean handleExternalUrl(String url) {
-                if (url == null || url.isEmpty()) return false;
-                try {
-                    Uri uri = Uri.parse(url);
-                    String scheme = uri.getScheme() == null ? "" : uri.getScheme().toLowerCase();
-                    String host = uri.getHost() == null ? "" : uri.getHost().toLowerCase();
-
-                    if ("tel".equals(scheme)) {
-                        startActivity(new Intent(Intent.ACTION_DIAL, uri));
-                        return true;
-                    }
-                    if ("geo".equals(scheme) || "google.navigation".equals(scheme)) {
-                        startActivity(new Intent(Intent.ACTION_VIEW, uri));
-                        return true;
-                    }
-                    if ("intent".equals(scheme)) {
-                        Intent intent = Intent.parseUri(url, Intent.URI_INTENT_SCHEME);
-                        startActivity(intent);
-                        return true;
-                    }
-                    if (("http".equals(scheme) || "https".equals(scheme)) &&
-                        ((host.contains("google.com") && url.toLowerCase().contains("maps")) ||
-                         host.contains("maps.google") || host.contains("waze.com"))) {
-                        startActivity(new Intent(Intent.ACTION_VIEW, uri));
-                        return true;
-                    }
-                } catch (Exception ignored) {}
-                return false;
-            }
-
-            @Override
-            public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
-                String url = request != null && request.getUrl() != null ? request.getUrl().toString() : null;
-                return handleExternalUrl(url);
-            }
-
-            @Override
-            public boolean shouldOverrideUrlLoading(WebView view, String url) {
-                return handleExternalUrl(url);
-            }
-
-            @Override
-            public void onPageFinished(WebView view, String url) {
-                super.onPageFinished(view, url);
-                view.evaluateJavascript(
-                    "window.__DMM_ANDROID_APK=true;" +
-                    "window.__DMM_ANDROID_SQLITE=true;" +
-                    "document.documentElement.classList.add('dmm-android-apk');" +
-                    "document.body.classList.add('dmm-android-apk');" +
-                    "(function(){" +
-                    "var s=document.getElementById('dmm-apk-edge-css');" +
-                    "if(!s){s=document.createElement('style');s.id='dmm-apk-edge-css';" +
-                    "s.textContent='html.dmm-android-apk,body.dmm-android-apk{margin:0!important;padding:0!important;background:#fff!important;min-height:100%!important} body.dmm-android-apk .driver-shell,body.dmm-android-apk .driver-portal-shell,body.dmm-android-apk #driverPortal{max-width:none!important;width:100%!important;margin:0!important;border:0!important;border-radius:0!important;box-shadow:none!important;padding-left:0!important;padding-right:0!important} body.dmm-android-apk .driver-selected-pane{overflow-y:auto!important;overflow-x:hidden!important;-webkit-overflow-scrolling:touch!important;touch-action:pan-y!important} body.dmm-android-apk .driver-main-stack,body.dmm-android-apk .driver-job-v3,body.dmm-android-apk .driver-job-detail-v3,body.dmm-android-apk .driver-terms-inline{overflow:visible!important;max-height:none!important;height:auto!important}';" +
-                    "document.head.appendChild(s);}" +
-                    "})();",
-                    null
-                );
-            }
+    @Override protected void onCreate(Bundle savedInstanceState) {
+        super.onCreate(savedInstanceState); immersive(); offlineDatabase=new OfflineDatabase(this);
+        webView=new WebView(this); webView.setBackgroundColor(Color.WHITE); webView.setOverScrollMode(View.OVER_SCROLL_IF_CONTENT_SCROLLS); webView.setVerticalScrollBarEnabled(true); webView.setHorizontalScrollBarEnabled(false); webView.setScrollbarFadingEnabled(false); webView.setScrollBarStyle(View.SCROLLBARS_INSIDE_OVERLAY); webView.addJavascriptInterface(new OfflineBridge(offlineDatabase),"DMMNative");
+        FrameLayout frame=new FrameLayout(this); frame.setBackgroundColor(Color.WHITE); frame.addView(webView,new FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT,FrameLayout.LayoutParams.MATCH_PARENT)); setContentView(frame);
+        WebSettings settings=webView.getSettings(); settings.setJavaScriptEnabled(true); settings.setDomStorageEnabled(true); settings.setDatabaseEnabled(true); settings.setLoadsImagesAutomatically(true); settings.setSupportZoom(true); settings.setBuiltInZoomControls(true); settings.setDisplayZoomControls(false); settings.setUseWideViewPort(true); settings.setLoadWithOverviewMode(true); settings.setMediaPlaybackRequiresUserGesture(false); settings.setJavaScriptCanOpenWindowsAutomatically(true); settings.setSupportMultipleWindows(false); settings.setAllowFileAccess(true); settings.setAllowContentAccess(true); settings.setCacheMode(WebSettings.LOAD_DEFAULT); settings.setUserAgentString(settings.getUserAgentString()+" DMM-Android-Driver/3.04 SQLiteOffline/2");
+        CookieManager cookies=CookieManager.getInstance(); cookies.setAcceptCookie(true); cookies.setAcceptThirdPartyCookies(webView,true);
+        webView.setWebViewClient(new WebViewClient(){
+            private boolean external(String url){if(url==null||url.isEmpty())return false;try{Uri u=Uri.parse(url);String s=u.getScheme()==null?"":u.getScheme().toLowerCase(),h=u.getHost()==null?"":u.getHost().toLowerCase();if("tel".equals(s)){startActivity(new Intent(Intent.ACTION_DIAL,u));return true;}if("geo".equals(s)||"google.navigation".equals(s)){startActivity(new Intent(Intent.ACTION_VIEW,u));return true;}if("intent".equals(s)){startActivity(Intent.parseUri(url,Intent.URI_INTENT_SCHEME));return true;}if(("http".equals(s)||"https".equals(s))&&((h.contains("google.com")&&url.toLowerCase().contains("maps"))||h.contains("maps.google")||h.contains("waze.com"))){startActivity(new Intent(Intent.ACTION_VIEW,u));return true;}}catch(Exception ignored){}return false;}
+            @Override public boolean shouldOverrideUrlLoading(WebView v,WebResourceRequest r){return external(r!=null&&r.getUrl()!=null?r.getUrl().toString():null);} @Override public boolean shouldOverrideUrlLoading(WebView v,String u){return external(u);}
+            @Override public void onPageFinished(WebView v,String u){super.onPageFinished(v,u);v.evaluateJavascript("window.__DMM_ANDROID_APK=true;window.__DMM_ANDROID_SQLITE=true;window.__DMM_ANDROID_APK_VERSION='3.04';document.documentElement.classList.add('dmm-android-apk');document.body.classList.add('dmm-android-apk');",null);}
         });
-
-        webView.setWebChromeClient(new WebChromeClient() {
-            @Override
-            public boolean onShowFileChooser(WebView webView, ValueCallback<Uri[]> callback, FileChooserParams params) {
-                if (filePathCallback != null) filePathCallback.onReceiveValue(null);
-                filePathCallback = callback;
-                Intent intent = params.createIntent();
-                intent.addCategory(Intent.CATEGORY_OPENABLE);
-                try {
-                    startActivityForResult(intent, FILE_CHOOSER_REQUEST);
-                    return true;
-                } catch (Exception ex) {
-                    filePathCallback = null;
-                    return false;
-                }
-            }
-
-            @Override
-            public void onPermissionRequest(final PermissionRequest request) {
-                runOnUiThread(() -> {
-                    boolean wantsCamera = false;
-                    for (String resource : request.getResources()) {
-                        if (PermissionRequest.RESOURCE_VIDEO_CAPTURE.equals(resource)) {
-                            wantsCamera = true;
-                            break;
-                        }
-                    }
-                    if (!wantsCamera) {
-                        request.deny();
-                        return;
-                    }
-                    if (checkSelfPermission(Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) {
-                        request.grant(new String[]{PermissionRequest.RESOURCE_VIDEO_CAPTURE});
-                    } else {
-                        pendingCameraPermissionRequest = request;
-                        requestPermissions(new String[]{Manifest.permission.CAMERA}, CAMERA_PERMISSION_REQUEST);
-                    }
-                });
-            }
+        webView.setWebChromeClient(new WebChromeClient(){
+            @Override public boolean onShowFileChooser(WebView w,ValueCallback<Uri[]> cb,FileChooserParams p){if(filePathCallback!=null)filePathCallback.onReceiveValue(null);filePathCallback=cb;Intent i=p.createIntent();i.addCategory(Intent.CATEGORY_OPENABLE);try{startActivityForResult(i,FILE_CHOOSER_REQUEST);return true;}catch(Exception e){filePathCallback=null;return false;}}
+            @Override public void onPermissionRequest(final PermissionRequest r){runOnUiThread(()->{boolean cam=false;for(String x:r.getResources())if(PermissionRequest.RESOURCE_VIDEO_CAPTURE.equals(x)){cam=true;break;}if(!cam){r.deny();return;}if(checkSelfPermission(Manifest.permission.CAMERA)==PackageManager.PERMISSION_GRANTED)r.grant(new String[]{PermissionRequest.RESOURCE_VIDEO_CAPTURE});else{pendingCameraPermissionRequest=r;requestPermissions(new String[]{Manifest.permission.CAMERA},CAMERA_PERMISSION_REQUEST);}});}
         });
-
-        if (savedInstanceState == null) webView.loadUrl(DMM_URL);
-        else webView.restoreState(savedInstanceState);
+        if(savedInstanceState==null)webView.loadUrl(DMM_URL);else webView.restoreState(savedInstanceState);
     }
-
-    @Override
-    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
-        if (requestCode == FILE_CHOOSER_REQUEST) {
-            if (filePathCallback != null) {
-                Uri[] results = WebChromeClient.FileChooserParams.parseResult(resultCode, data);
-                filePathCallback.onReceiveValue(results);
-                filePathCallback = null;
-            }
-            return;
-        }
-        super.onActivityResult(requestCode, resultCode, data);
-    }
-
-    @Override
-    public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
-        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
-        if (requestCode == CAMERA_PERMISSION_REQUEST && pendingCameraPermissionRequest != null) {
-            if (grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
-                pendingCameraPermissionRequest.grant(new String[]{PermissionRequest.RESOURCE_VIDEO_CAPTURE});
-            } else {
-                pendingCameraPermissionRequest.deny();
-            }
-            pendingCameraPermissionRequest = null;
-        }
-    }
-
-    private void immersive() {
-        getWindow().getDecorView().setSystemUiVisibility(
-            View.SYSTEM_UI_FLAG_FULLSCREEN |
-            View.SYSTEM_UI_FLAG_HIDE_NAVIGATION |
-            View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY |
-            View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN |
-            View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION |
-            View.SYSTEM_UI_FLAG_LAYOUT_STABLE
-        );
-    }
-
-    @Override
-    public void onBackPressed() {
-        if (webView != null && webView.canGoBack()) webView.goBack();
-        else super.onBackPressed();
-    }
-
-    @Override
-    protected void onSaveInstanceState(Bundle outState) {
-        if (webView != null) webView.saveState(outState);
-        super.onSaveInstanceState(outState);
-    }
-
-    @Override
-    public void onWindowFocusChanged(boolean hasFocus) {
-        super.onWindowFocusChanged(hasFocus);
-        if (hasFocus) immersive();
-    }
-
-    @Override
-    protected void onDestroy() {
-        if (webView != null) {
-            webView.removeJavascriptInterface("DMMNative");
-            webView.destroy();
-            webView = null;
-        }
-        if (offlineDatabase != null) {
-            offlineDatabase.close();
-            offlineDatabase = null;
-        }
-        super.onDestroy();
-    }
+    @Override protected void onActivityResult(int c,int r,Intent d){if(c==FILE_CHOOSER_REQUEST){if(filePathCallback!=null){filePathCallback.onReceiveValue(WebChromeClient.FileChooserParams.parseResult(r,d));filePathCallback=null;}return;}super.onActivityResult(c,r,d);}
+    @Override public void onRequestPermissionsResult(int c,String[] p,int[] g){super.onRequestPermissionsResult(c,p,g);if(c==CAMERA_PERMISSION_REQUEST&&pendingCameraPermissionRequest!=null){if(g.length>0&&g[0]==PackageManager.PERMISSION_GRANTED)pendingCameraPermissionRequest.grant(new String[]{PermissionRequest.RESOURCE_VIDEO_CAPTURE});else pendingCameraPermissionRequest.deny();pendingCameraPermissionRequest=null;}}
+    private void immersive(){getWindow().getDecorView().setSystemUiVisibility(View.SYSTEM_UI_FLAG_FULLSCREEN|View.SYSTEM_UI_FLAG_HIDE_NAVIGATION|View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY|View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN|View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION|View.SYSTEM_UI_FLAG_LAYOUT_STABLE);}
+    @Override public void onBackPressed(){if(webView!=null&&webView.canGoBack())webView.goBack();else super.onBackPressed();}
+    @Override protected void onSaveInstanceState(Bundle o){if(webView!=null)webView.saveState(o);super.onSaveInstanceState(o);} @Override public void onWindowFocusChanged(boolean h){super.onWindowFocusChanged(h);if(h)immersive();}
+    @Override protected void onDestroy(){if(webView!=null){webView.removeJavascriptInterface("DMMNative");webView.destroy();webView=null;}if(offlineDatabase!=null){offlineDatabase.close();offlineDatabase=null;}super.onDestroy();}
 }
