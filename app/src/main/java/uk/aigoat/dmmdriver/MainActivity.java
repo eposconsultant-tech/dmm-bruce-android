@@ -62,7 +62,7 @@ public class MainActivity extends Activity {
         settings.setJavaScriptCanOpenWindowsAutomatically(true);
         settings.setSupportMultipleWindows(false);
         settings.setCacheMode(WebSettings.LOAD_DEFAULT);
-        settings.setUserAgentString(settings.getUserAgentString() + " DMM-Android-Driver/3.01");
+        settings.setUserAgentString(settings.getUserAgentString() + " DMM-Android-Driver/3.02");
 
         CookieManager cookies = CookieManager.getInstance();
         cookies.setAcceptCookie(true);
@@ -80,26 +80,22 @@ public class MainActivity extends Activity {
                         startActivity(new Intent(Intent.ACTION_DIAL, uri));
                         return true;
                     }
-
                     if ("geo".equals(scheme) || "google.navigation".equals(scheme)) {
                         startActivity(new Intent(Intent.ACTION_VIEW, uri));
                         return true;
                     }
-
                     if ("intent".equals(scheme)) {
                         Intent intent = Intent.parseUri(url, Intent.URI_INTENT_SCHEME);
                         startActivity(intent);
                         return true;
                     }
-
                     if (("http".equals(scheme) || "https".equals(scheme)) &&
                         ((host.contains("google.com") && url.toLowerCase().contains("maps")) ||
                          host.contains("maps.google") || host.contains("waze.com"))) {
                         startActivity(new Intent(Intent.ACTION_VIEW, uri));
                         return true;
                     }
-                } catch (Exception ignored) {
-                }
+                } catch (Exception ignored) {}
                 return false;
             }
 
@@ -136,9 +132,7 @@ public class MainActivity extends Activity {
         webView.setWebChromeClient(new WebChromeClient() {
             @Override
             public boolean onShowFileChooser(WebView webView, ValueCallback<Uri[]> callback, FileChooserParams params) {
-                if (filePathCallback != null) {
-                    filePathCallback.onReceiveValue(null);
-                }
+                if (filePathCallback != null) filePathCallback.onReceiveValue(null);
                 filePathCallback = callback;
                 Intent intent = params.createIntent();
                 intent.addCategory(Intent.CATEGORY_OPENABLE);
@@ -156,17 +150,9 @@ public class MainActivity extends Activity {
                 runOnUiThread(() -> {
                     boolean wantsCamera = false;
                     for (String resource : request.getResources()) {
-                        if (PermissionRequest.RESOURCE_VIDEO_CAPTURE.equals(resource)) {
-                            wantsCamera = true;
-                            break;
-                        }
+                        if (PermissionRequest.RESOURCE_VIDEO_CAPTURE.equals(resource)) { wantsCamera = true; break; }
                     }
-
-                    if (!wantsCamera) {
-                        request.deny();
-                        return;
-                    }
-
+                    if (!wantsCamera) { request.deny(); return; }
                     if (checkSelfPermission(Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) {
                         request.grant(new String[]{PermissionRequest.RESOURCE_VIDEO_CAPTURE});
                     } else {
@@ -177,11 +163,7 @@ public class MainActivity extends Activity {
             }
         });
 
-        if (savedInstanceState == null) {
-            webView.loadUrl(DMM_URL);
-        } else {
-            webView.restoreState(savedInstanceState);
-        }
+        if (savedInstanceState == null) webView.loadUrl(DMM_URL); else webView.restoreState(savedInstanceState);
     }
 
     @Override
@@ -203,31 +185,22 @@ public class MainActivity extends Activity {
         if (requestCode == CAMERA_PERMISSION_REQUEST && pendingCameraPermissionRequest != null) {
             if (grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
                 pendingCameraPermissionRequest.grant(new String[]{PermissionRequest.RESOURCE_VIDEO_CAPTURE});
-            } else {
-                pendingCameraPermissionRequest.deny();
-            }
+            } else pendingCameraPermissionRequest.deny();
             pendingCameraPermissionRequest = null;
         }
     }
 
     private void immersive() {
         getWindow().getDecorView().setSystemUiVisibility(
-            View.SYSTEM_UI_FLAG_FULLSCREEN |
-            View.SYSTEM_UI_FLAG_HIDE_NAVIGATION |
-            View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY |
-            View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN |
-            View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION |
-            View.SYSTEM_UI_FLAG_LAYOUT_STABLE
+            View.SYSTEM_UI_FLAG_FULLSCREEN | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION |
+            View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY | View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN |
+            View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION | View.SYSTEM_UI_FLAG_LAYOUT_STABLE
         );
     }
 
     @Override
     public void onBackPressed() {
-        if (webView != null && webView.canGoBack()) {
-            webView.goBack();
-        } else {
-            super.onBackPressed();
-        }
+        if (webView != null && webView.canGoBack()) webView.goBack(); else super.onBackPressed();
     }
 
     @Override
