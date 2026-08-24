@@ -40,6 +40,16 @@ public class OfflineBridge {
     }
 
     @JavascriptInterface
+    public String completeJobAtomic(String json) {
+        try { return db.completeJobAtomic(json); } catch (Exception ex) { return "{\"ok\":false,\"error\":\"Native completion exception\"}"; }
+    }
+
+    @JavascriptInterface
+    public boolean markJobSynced(String id) {
+        try { return db.markJobSynced(id); } catch (Exception ex) { return false; }
+    }
+
+    @JavascriptInterface
     public String getJobJson(String id) {
         try { return db.getJobJson(id); } catch (Exception ex) { return null; }
     }
@@ -55,12 +65,17 @@ public class OfflineBridge {
     }
 
     @JavascriptInterface
+    public String pendingDetails() {
+        try { return db.pendingDetailsJson(); } catch (Exception ex) { return "[]"; }
+    }
+
+    @JavascriptInterface
     public String stats() {
         try { return db.statsJson(); } catch (Exception ex) { return "{}"; }
     }
 
     @JavascriptInterface
     public String engine() {
-        return "sqlite-v2";
+        return "sqlite-v3-atomic";
     }
 }
