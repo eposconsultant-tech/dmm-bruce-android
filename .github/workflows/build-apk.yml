@@ -25,23 +25,23 @@ jobs:
       - name: Build debug APK
         run: gradle assembleDebug
       - name: Prepare named APK
-        run: cp app/build/outputs/apk/debug/app-debug.apk DMM-Driver-v3.07.apk
+        run: cp app/build/outputs/apk/debug/app-debug.apk DMM-Driver-v3.08.apk
       - name: Upload workflow artifact
         uses: actions/upload-artifact@v4
         with:
-          name: DMM-Driver-v3.07
-          path: DMM-Driver-v3.07.apk
+          name: DMM-Driver-v3.08
+          path: DMM-Driver-v3.08.apk
       - name: Publish latest test APK release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh release delete dmm-driver-latest --cleanup-tag --yes || true
-          gh release create dmm-driver-latest DMM-Driver-v3.07.apk \
-            --title "DMM Driver v3.07" \
-            --notes "Paired with safe Portal v2.19.01 using the existing API. APK-only adapter routes downloaded and pending driver jobs into native SQLite v3, atomic-verifies delivered jobs, restores local jobs offline, and adds a LOCAL READY TO SEND / ALL SYNCED diagnostic button."
+          gh release create dmm-driver-latest DMM-Driver-v3.08.apk \
+            --title "DMM Driver v3.08" \
+            --notes "Paired with safe Portal v2.19.01. APK-only keyboard/input focus fix: removes immersive re-hide behavior that could suppress Android IME on login, retains SQLite v3 offline persistence, atomic completion and LOCAL READY TO SEND diagnostics."
       - name: Record successful build
         run: |
-          printf 'DMM Driver v3.07\nBuilt from commit: %s\nWorkflow run: %s\nRelease tag: dmm-driver-latest\nAPK: DMM-Driver-v3.07.apk\n' "$GITHUB_SHA" "$GITHUB_RUN_ID" > LATEST_APK_BUILD.txt
+          printf 'DMM Driver v3.08\nBuilt from commit: %s\nWorkflow run: %s\nRelease tag: dmm-driver-latest\nAPK: DMM-Driver-v3.08.apk\n' "$GITHUB_SHA" "$GITHUB_RUN_ID" > LATEST_APK_BUILD.txt
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add LATEST_APK_BUILD.txt
