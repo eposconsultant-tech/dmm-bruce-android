@@ -1,5 +1,5 @@
-DMM Driver v3.20 FULL OFFLINE
-Built from commit: 20ba2d6ac9515e90397b033b42c1ae9d58acd471
-Workflow run: 32792491072
+DMM Driver v3.21 STICKY SYNC
+Built from commit: 8026a018c4752e76f9772d4a8b7469effd3a9795
+Workflow run: 32794138468
 Release tag: dmm-driver-latest
-APK: DMM-Driver-v3.20.apk
+APK: DMM-Driver-v3.21.apk
