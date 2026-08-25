@@ -1,5 +1,5 @@
-DMM Driver v3.22 FAST SYNC
-Built from commit: 2ae9a622cb9d52fb1f26736ee03904b520770f68
-Workflow run: 32824315824
+DMM Driver v3.23 EXTERNAL LINKS
+Built from commit: 6fd6485e2cf2e28563b96cc150a676e767c313d9
+Workflow run: 32824885267
 Release tag: dmm-driver-latest
-APK: DMM-Driver-v3.22.apk
+APK: DMM-Driver-v3.23.apk
