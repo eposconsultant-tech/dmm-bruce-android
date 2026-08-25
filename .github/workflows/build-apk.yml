@@ -25,23 +25,23 @@ jobs:
       - name: Build debug APK
         run: gradle assembleDebug
       - name: Prepare named APK
-        run: cp app/build/outputs/apk/debug/app-debug.apk DMM-Driver-v3.22.apk
+        run: cp app/build/outputs/apk/debug/app-debug.apk DMM-Driver-v3.23.apk
       - name: Upload workflow artifact
         uses: actions/upload-artifact@v4
         with:
-          name: DMM-Driver-v3.22
-          path: DMM-Driver-v3.22.apk
+          name: DMM-Driver-v3.23
+          path: DMM-Driver-v3.23.apk
       - name: Publish latest test APK release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh release delete dmm-driver-latest --cleanup-tag --yes || true
-          gh release create dmm-driver-latest DMM-Driver-v3.22.apk \
-            --title "DMM Driver v3.22 FAST SYNC" \
-            --notes "Paired with safe Portal v2.19.01. Adds fast auto-send on connectivity restoration, keeps pending sticky until successful fetch acknowledgement, detects offline Delivered transitions even without an existing pending marker, refreshes truthful queue state every 1.5s, and hardens native camera capture with MediaStore output plus Select Photo fallback. Portal/API/Supabase unchanged."
+          gh release create dmm-driver-latest DMM-Driver-v3.23.apk \
+            --title "DMM Driver v3.23 EXTERNAL LINKS" \
+            --notes "Paired with safe Portal v2.19.03. Adds Android external handling for CALL and DIRECTIONS links, including tel, geo and intent schemes with Google Maps fallback. Keeps existing offline SQLite, sticky pending, fast-sync and camera work. Portal/API/Supabase unchanged by this APK build."
       - name: Record successful build
         run: |
-          printf 'DMM Driver v3.22 FAST SYNC\nBuilt from commit: %s\nWorkflow run: %s\nRelease tag: dmm-driver-latest\nAPK: DMM-Driver-v3.22.apk\n' "$GITHUB_SHA" "$GITHUB_RUN_ID" > LATEST_APK_BUILD.txt
+          printf 'DMM Driver v3.23 EXTERNAL LINKS\nBuilt from commit: %s\nWorkflow run: %s\nRelease tag: dmm-driver-latest\nAPK: DMM-Driver-v3.23.apk\n' "$GITHUB_SHA" "$GITHUB_RUN_ID" > LATEST_APK_BUILD.txt
           git config user.name "github-actions[bot]"
           git config user.email "4189826+github-actions[bot]@users.noreply.github.com"
           git add LATEST_APK_BUILD.txt
