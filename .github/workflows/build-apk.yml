@@ -25,25 +25,25 @@ jobs:
       - name: Build debug APK
         run: gradle assembleDebug
       - name: Prepare named APK
-        run: cp app/build/outputs/apk/debug/app-debug.apk DMM-Driver-v3.20.apk
+        run: cp app/build/outputs/apk/debug/app-debug.apk DMM-Driver-v3.21.apk
       - name: Upload workflow artifact
         uses: actions/upload-artifact@v4
         with:
-          name: DMM-Driver-v3.20
-          path: DMM-Driver-v3.20.apk
+          name: DMM-Driver-v3.21
+          path: DMM-Driver-v3.21.apk
       - name: Publish latest test APK release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh release delete dmm-driver-latest --cleanup-tag --yes || true
-          gh release create dmm-driver-latest DMM-Driver-v3.20.apk \
-            --title "DMM Driver v3.20 FULL OFFLINE" \
-            --notes "Paired with safe Portal v2.19.01. Consolidated offline driver milestone: SQLite job persistence and atomic Delivered verification, offline/online pending status, non-blocking offline save alerts, native camera capture plus Select Photo fallback, cached WebView mode when starting without validated internet, and no native WebView reload/navigation. Existing current API only; portal and Supabase schema unchanged."
+          gh release create dmm-driver-latest DMM-Driver-v3.21.apk \
+            --title "DMM Driver v3.21 STICKY SYNC" \
+            --notes "Paired with safe Portal v2.19.01. Makes SQLite pending state sticky until explicit markJobSynced server acknowledgement; ordinary UI/job writes can no longer clear unsent completion state. Pending count cross-checks jobs, sync queue and completion commits. Keeps v3.20 offline persistence and native camera work. Portal/API/Supabase unchanged."
       - name: Record successful build
         run: |
-          printf 'DMM Driver v3.20 FULL OFFLINE\nBuilt from commit: %s\nWorkflow run: %s\nRelease tag: dmm-driver-latest\nAPK: DMM-Driver-v3.20.apk\n' "$GITHUB_SHA" "$GITHUB_RUN_ID" > LATEST_APK_BUILD.txt
+          printf 'DMM Driver v3.21 STICKY SYNC\nBuilt from commit: %s\nWorkflow run: %s\nRelease tag: dmm-driver-latest\nAPK: DMM-Driver-v3.21.apk\n' "$GITHUB_SHA" "$GITHUB_RUN_ID" > LATEST_APK_BUILD.txt
           git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git config user.email "4189826+github-actions[bot]@users.noreply.github.com"
           git add LATEST_APK_BUILD.txt
           git commit -m "[skip ci] Record successful DMM Driver APK build" || exit 0
           git push
