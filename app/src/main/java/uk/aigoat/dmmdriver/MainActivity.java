@@ -3,6 +3,7 @@ package uk.aigoat.dmmdriver;
 import android.Manifest;
 import android.app.Activity;
 import android.app.AlertDialog;
+import android.content.ClipData;
 import android.content.ContentValues;
 import android.content.Intent;
 import android.content.pm.PackageManager;
@@ -34,9 +35,9 @@ import org.json.JSONObject;
 
 public class MainActivity extends Activity {
     private static final String DMM_URL = "https://dmm.aigoat.uk/";
-    private static final int PICK_PHOTO_REQUEST = 3201;
-    private static final int CAMERA_REQUEST = 3202;
-    private static final int CAMERA_PERMISSION_REQUEST = 3203;
+    private static final int PICK_PHOTO_REQUEST = 4201;
+    private static final int CAMERA_REQUEST = 4202;
+    private static final int CAMERA_PERMISSION_REQUEST = 4203;
 
     private WebView webView;
     private OfflineDatabase offlineDatabase;
@@ -48,7 +49,7 @@ public class MainActivity extends Activity {
     private final Runnable pendingRefresh = new Runnable() {
         @Override public void run() {
             refreshPendingButton();
-            uiHandler.postDelayed(this, 3000);
+            uiHandler.postDelayed(this, 1500);
         }
     };
 
@@ -90,7 +91,7 @@ public class MainActivity extends Activity {
         s.setAllowFileAccess(true);
         s.setAllowContentAccess(true);
         s.setCacheMode(isOnline() ? WebSettings.LOAD_DEFAULT : WebSettings.LOAD_CACHE_ELSE_NETWORK);
-        s.setUserAgentString(s.getUserAgentString() + " DMM-Android-Driver/3.20 FullOffline/1 SQLiteOffline/3 AtomicCompletion/3 NativePendingUI/2 NativeCamera/1");
+        s.setUserAgentString(s.getUserAgentString() + " DMM-Android-Driver/3.22 FastSync/1 StickyPending/2 NativeCamera/2");
 
         CookieManager.getInstance().setAcceptCookie(true);
         CookieManager.getInstance().setAcceptThirdPartyCookies(webView, true);
@@ -98,7 +99,7 @@ public class MainActivity extends Activity {
         webView.setWebViewClient(new WebViewClient() {
             @Override public void onPageFinished(WebView view, String url) {
                 super.onPageFinished(view, url);
-                installFullOfflinePersistence(view);
+                installOfflineAndFastSync(view);
                 refreshPendingButton();
             }
             @Override public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) { return false; }
@@ -120,9 +121,10 @@ public class MainActivity extends Activity {
 
             @Override public boolean onJsAlert(WebView view, String url, String message, JsResult result) {
                 String m = message == null ? "" : message;
-                if ((m.contains("saved on this device") && m.toLowerCase().contains("cloud upload failed")) ||
-                    (m.contains("updated on this device") && m.toLowerCase().contains("cloud upload failed")) ||
-                    "Failed to fetch".equalsIgnoreCase(m.trim())) {
+                String lower = m.toLowerCase();
+                if ((lower.contains("saved on this device") && lower.contains("cloud upload failed")) ||
+                    (lower.contains("updated on this device") && lower.contains("cloud upload failed")) ||
+                    "failed to fetch".equals(lower.trim())) {
                     result.confirm();
                     refreshPendingButton();
                     Toast.makeText(MainActivity.this, "Saved offline · Ready to send", Toast.LENGTH_SHORT).show();
@@ -148,17 +150,28 @@ public class MainActivity extends Activity {
         } catch (Exception ex) { return false; }
     }
 
-    private void installFullOfflinePersistence(WebView view) {
+    private void installOfflineAndFastSync(WebView view) {
         String js = "(function(){try{" +
-            "if(window.__DMM320)return;window.__DMM320=true;if(!window.DMMNative)return;" +
-            "var KEY='dmmJobsV3';var os=Storage.prototype.setItem,og=Storage.prototype.getItem,or=Storage.prototype.removeItem;" +
+            "if(window.__DMM322)return;window.__DMM322=true;if(!window.DMMNative)return;" +
+            "var KEY='dmmJobsV3',os=Storage.prototype.setItem,og=Storage.prototype.getItem,or=Storage.prototype.removeItem;" +
+            "function arr(v){try{var a=JSON.parse(v||'[]');return Array.isArray(a)?a:[];}catch(e){return[];}}" +
+            "function idOf(j){return j&&j.id!=null?String(j.id):'';}" +
             "Storage.prototype.setItem=function(k,v){if(this===localStorage&&k===KEY){" +
-                "var a=JSON.parse(String(v)||'[]');if(Array.isArray(a)){for(var i=0;i<a.length;i++){var j=a[i];if(j&&j._pendingCloudUpload===true&&String(j.status||'').toLowerCase()==='delivered'){var r=JSON.parse(DMMNative.completeJobAtomic(JSON.stringify(j)));if(!r.ok)throw new Error(r.error||'SQLite completion verification failed');}}}" +
-                "if(!DMMNative.setJobsJson(String(v)))throw new Error('SQLite jobs write failed');return;}return os.call(this,k,v);};" +
+                "var incoming=arr(String(v)),existing=arr(DMMNative.getJobsJson()),old={};for(var x=0;x<existing.length;x++){var ei=existing[x],eid=idOf(ei);if(eid)old[eid]=String(ei.status||'').toLowerCase();}" +
+                "for(var i=0;i<incoming.length;i++){var j=incoming[i],jid=idOf(j),ns=String((j&&j.status)||'').toLowerCase(),was=jid?old[jid]:'';" +
+                    "var becameDelivered=(ns==='delivered'&&was!=='delivered');var mustQueue=(j&&j._pendingCloudUpload===true)||(!navigator.onLine&&becameDelivered);" +
+                    "if(mustQueue){var r=JSON.parse(DMMNative.completeJobAtomic(JSON.stringify(j)));if(!r.ok)throw new Error(r.error||'SQLite completion verification failed');j._pendingCloudUpload=true;}" +
+                "}" +
+                "if(!DMMNative.setJobsJson(JSON.stringify(incoming)))throw new Error('SQLite jobs write failed');return;}return os.call(this,k,v);};" +
             "Storage.prototype.getItem=function(k){if(this===localStorage&&k===KEY){try{var n=DMMNative.getJobsJson();if(n!=null)return n;}catch(e){}}return og.call(this,k);};" +
             "Storage.prototype.removeItem=function(k){if(this===localStorage&&k===KEY){try{DMMNative.removeItem(KEY);}catch(e){}return;}return or.call(this,k);};" +
-            "try{var e=og.call(localStorage,KEY);if(e)DMMNative.setJobsJson(e);}catch(x){}" +
-        "}catch(e){console.error('DMM v3.20 offline persistence failed',e);}})();";
+            "try{var seed=og.call(localStorage,KEY);if(seed)DMMNative.setJobsJson(seed);}catch(e){}" +
+            "var nativeFetch=window.fetch;window.fetch=function(input,init){var body='';try{body=init&&typeof init.body==='string'?init.body:'';}catch(e){}" +
+                "return nativeFetch.apply(this,arguments).then(function(resp){try{if(resp&&resp.ok&&body){var p=JSON.parse(DMMNative.pendingDetails()||'[]');for(var i=0;i<p.length;i++){var id=String(p[i].jobId||'');if(id&&body.indexOf(id)>=0){DMMNative.markJobSynced(id);}}}}catch(e){}return resp;});};" +
+            "function clickSend(){try{if(!navigator.onLine||DMMNative.pendingCount()<=0)return;var els=document.querySelectorAll('button,a,[role=button]');for(var i=0;i<els.length;i++){var t=(els[i].innerText||els[i].textContent||'').trim().toLowerCase();if(t.indexOf('upload pending')>=0||t.indexOf('send now')>=0){els[i].click();return;}}}catch(e){}}" +
+            "window.addEventListener('online',function(){setTimeout(clickSend,400);});" +
+            "if(navigator.onLine&&DMMNative.pendingCount()>0)setTimeout(clickSend,900);" +
+        "}catch(e){console.error('DMM v3.22 install failed',e);}})();";
         view.evaluateJavascript(js, null);
     }
 
@@ -184,7 +197,6 @@ public class MainActivity extends Activity {
                 String customer=job==null?"":job.optString("customerName",job.optString("businessName",""));
                 String status=job==null?row.optString("status","pending"):job.optString("status",row.optString("status","pending"));
                 text.append("Job #").append(number).append(" · ").append(status); if(!customer.isEmpty()) text.append("\n").append(customer);
-                String err=row.optString("lastError",""); if(!err.isEmpty()&&!"null".equalsIgnoreCase(err)) text.append("\nError: ").append(err);
                 if(i<rows.length()-1) text.append("\n\n");
             }
         } catch(Exception ex){ text.append("Unable to read local pending data.\n").append(ex.getMessage()); }
@@ -200,12 +212,15 @@ public class MainActivity extends Activity {
             v.put(MediaStore.Images.Media.DISPLAY_NAME, "dmm_delivery_" + System.currentTimeMillis() + ".jpg");
             v.put(MediaStore.Images.Media.MIME_TYPE, "image/jpeg");
             pendingCameraUri = getContentResolver().insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, v);
+            if (pendingCameraUri == null) throw new IllegalStateException("Unable to create camera image URI");
             Intent camera = new Intent(MediaStore.ACTION_IMAGE_CAPTURE);
-            if (pendingCameraUri != null) camera.putExtra(MediaStore.EXTRA_OUTPUT, pendingCameraUri);
+            camera.putExtra(MediaStore.EXTRA_OUTPUT, pendingCameraUri);
+            camera.setClipData(ClipData.newRawUri("DMM delivery photo", pendingCameraUri));
             camera.addFlags(Intent.FLAG_GRANT_WRITE_URI_PERMISSION | Intent.FLAG_GRANT_READ_URI_PERMISSION);
             startActivityForResult(camera, CAMERA_REQUEST);
         } catch(Exception ex) {
-            Toast.makeText(this,"Camera could not be opened · use Select Photo",Toast.LENGTH_LONG).show(); startGalleryFlow();
+            Toast.makeText(this,"Camera could not be opened · Select Photo instead",Toast.LENGTH_LONG).show();
+            startGalleryFlow();
         }
     }
 
@@ -218,14 +233,19 @@ public class MainActivity extends Activity {
     private void clearFileCallback(){ if(filePathCallback!=null)filePathCallback.onReceiveValue(null);filePathCallback=null;pendingCameraUri=null; }
 
     @Override protected void onActivityResult(int requestCode,int resultCode,Intent data){
-        if(requestCode==CAMERA_REQUEST){if(filePathCallback!=null)filePathCallback.onReceiveValue(resultCode==RESULT_OK&&pendingCameraUri!=null?new Uri[]{pendingCameraUri}:null);filePathCallback=null;pendingCameraUri=null;return;}
+        if(requestCode==CAMERA_REQUEST){
+            Uri result=(resultCode==RESULT_OK)?pendingCameraUri:null;
+            if(filePathCallback!=null)filePathCallback.onReceiveValue(result==null?null:new Uri[]{result});
+            if(result==null&&pendingCameraUri!=null){try{getContentResolver().delete(pendingCameraUri,null,null);}catch(Exception ignored){}}
+            filePathCallback=null;pendingCameraUri=null;return;
+        }
         if(requestCode==PICK_PHOTO_REQUEST){Uri uri=resultCode==RESULT_OK&&data!=null?data.getData():null;if(filePathCallback!=null)filePathCallback.onReceiveValue(uri==null?null:new Uri[]{uri});filePathCallback=null;return;}
         super.onActivityResult(requestCode,resultCode,data);
     }
 
     @Override public void onRequestPermissionsResult(int requestCode,String[] permissions,int[] grantResults){
         super.onRequestPermissionsResult(requestCode,permissions,grantResults);
-        if(requestCode==CAMERA_PERMISSION_REQUEST){if(grantResults.length>0&&grantResults[0]==PackageManager.PERMISSION_GRANTED)startCameraFlow();else{Toast.makeText(this,"Camera permission denied · use Select Photo",Toast.LENGTH_LONG).show();startGalleryFlow();}}
+        if(requestCode==CAMERA_PERMISSION_REQUEST){if(grantResults.length>0&&grantResults[0]==PackageManager.PERMISSION_GRANTED)startCameraFlow();else{Toast.makeText(this,"Camera permission denied · Select Photo instead",Toast.LENGTH_LONG).show();startGalleryFlow();}}
     }
 
     @Override public void onBackPressed(){if(webView!=null&&webView.canGoBack())webView.goBack();else super.onBackPressed();}
