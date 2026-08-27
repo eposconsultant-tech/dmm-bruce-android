@@ -20,6 +20,7 @@ import android.view.Gravity;
 import android.view.WindowManager;
 import android.webkit.CookieManager;
 import android.webkit.JsResult;
+import android.webkit.PermissionRequest;
 import android.webkit.ValueCallback;
 import android.webkit.WebChromeClient;
 import android.webkit.WebResourceRequest;
@@ -38,12 +39,14 @@ public class MainActivity extends Activity {
     private static final int PICK_PHOTO_REQUEST = 4201;
     private static final int CAMERA_REQUEST = 4202;
     private static final int CAMERA_PERMISSION_REQUEST = 4203;
+    private static final int WEB_CAMERA_PERMISSION_REQUEST = 4204;
     private WebView webView;
     private OfflineDatabase offlineDatabase;
     private Button pendingButton;
     private final Handler uiHandler = new Handler(Looper.getMainLooper());
     private ValueCallback<Uri[]> filePathCallback;
     private Uri pendingCameraUri;
+    private PermissionRequest pendingWebCameraRequest;
     private final Runnable pendingRefresh = new Runnable(){@Override public void run(){refreshPendingButton();uiHandler.postDelayed(this,1500);}};
 
     @Override protected void onCreate(Bundle savedInstanceState){
@@ -52,7 +55,7 @@ public class MainActivity extends Activity {
         FrameLayout frame=new FrameLayout(this);frame.addView(webView,new FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT,FrameLayout.LayoutParams.MATCH_PARENT));
         pendingButton=new Button(this);pendingButton.setAllCaps(false);pendingButton.setTextSize(10f);pendingButton.setTextColor(Color.WHITE);pendingButton.setBackgroundColor(Color.rgb(17,24,39));pendingButton.setPadding(dp(10),dp(3),dp(10),dp(3));pendingButton.setOnClickListener(v->showPendingDetails());
         FrameLayout.LayoutParams bp=new FrameLayout.LayoutParams(FrameLayout.LayoutParams.WRAP_CONTENT,dp(40));bp.gravity=Gravity.TOP|Gravity.END;bp.topMargin=dp(6);bp.rightMargin=dp(8);frame.addView(pendingButton,bp);setContentView(frame);
-        WebSettings s=webView.getSettings();s.setJavaScriptEnabled(true);s.setDomStorageEnabled(true);s.setDatabaseEnabled(true);s.setLoadsImagesAutomatically(true);s.setUseWideViewPort(true);s.setLoadWithOverviewMode(true);s.setAllowFileAccess(true);s.setAllowContentAccess(true);s.setCacheMode(isOnline()?WebSettings.LOAD_DEFAULT:WebSettings.LOAD_CACHE_ELSE_NETWORK);s.setUserAgentString(s.getUserAgentString()+" DMM-Android-Driver/3.23 ExternalIntents/1 FastSync/1 StickyPending/2 NativeCamera/2");
+        WebSettings s=webView.getSettings();s.setJavaScriptEnabled(true);s.setDomStorageEnabled(true);s.setDatabaseEnabled(true);s.setLoadsImagesAutomatically(true);s.setUseWideViewPort(true);s.setLoadWithOverviewMode(true);s.setAllowFileAccess(true);s.setAllowContentAccess(true);s.setCacheMode(isOnline()?WebSettings.LOAD_DEFAULT:WebSettings.LOAD_CACHE_ELSE_NETWORK);s.setUserAgentString(s.getUserAgentString()+" DMM-Android-Driver/3.24 ExternalIntents/1 FastSync/1 StickyPending/2 NativeCamera/2 WebCameraPermission/1");
         CookieManager.getInstance().setAcceptCookie(true);CookieManager.getInstance().setAcceptThirdPartyCookies(webView,true);
         webView.setWebViewClient(new WebViewClient(){
             @Override public void onPageFinished(WebView view,String url){super.onPageFinished(view,url);installOfflineAndFastSync(view);refreshPendingButton();}
@@ -61,10 +64,33 @@ public class MainActivity extends Activity {
         });
         webView.setWebChromeClient(new WebChromeClient(){
             @Override public boolean onShowFileChooser(WebView w,ValueCallback<Uri[]> cb,FileChooserParams params){if(filePathCallback!=null)filePathCallback.onReceiveValue(null);filePathCallback=cb;new AlertDialog.Builder(MainActivity.this).setTitle("Delivery Photograph").setItems(new String[]{"Take Photo","Select Photo"},(d,which)->{if(which==0)startCameraFlow();else startGalleryFlow();}).setOnCancelListener(d->clearFileCallback()).show();return true;}
+            @Override public void onPermissionRequest(PermissionRequest request){runOnUiThread(()->handleWebPermissionRequest(request));}
+            @Override public void onPermissionRequestCanceled(PermissionRequest request){runOnUiThread(()->{if(pendingWebCameraRequest==request)pendingWebCameraRequest=null;});}
             @Override public boolean onJsAlert(WebView view,String url,String message,JsResult result){String m=message==null?"":message;String lower=m.toLowerCase();if((lower.contains("saved on this device")&&lower.contains("cloud upload failed"))||(lower.contains("updated on this device")&&lower.contains("cloud upload failed"))||"failed to fetch".equals(lower.trim())){result.confirm();refreshPendingButton();Toast.makeText(MainActivity.this,"Saved offline · Ready to send",Toast.LENGTH_SHORT).show();return true;}return super.onJsAlert(view,url,message,result);}
         });
         uiHandler.post(pendingRefresh);if(savedInstanceState==null)webView.loadUrl(DMM_URL);else webView.restoreState(savedInstanceState);
     }
+
+    private void handleWebPermissionRequest(PermissionRequest request){
+        if(request==null)return;
+        boolean wantsVideo=false;
+        for(String resource:request.getResources()){if(PermissionRequest.RESOURCE_VIDEO_CAPTURE.equals(resource)){wantsVideo=true;break;}}
+        Uri origin=request.getOrigin();
+        boolean trustedOrigin=origin!=null&&"https".equalsIgnoreCase(origin.getScheme())&&"dmm.aigoat.uk".equalsIgnoreCase(origin.getHost());
+        if(!wantsVideo||!trustedOrigin){request.deny();if(wantsVideo)Toast.makeText(this,"Camera request blocked for an untrusted page",Toast.LENGTH_LONG).show();return;}
+        if(pendingWebCameraRequest!=null&&pendingWebCameraRequest!=request){try{pendingWebCameraRequest.deny();}catch(Exception ignored){}}
+        pendingWebCameraRequest=request;
+        if(checkSelfPermission(Manifest.permission.CAMERA)==PackageManager.PERMISSION_GRANTED){grantPendingWebCameraPermission();}
+        else{requestPermissions(new String[]{Manifest.permission.CAMERA},WEB_CAMERA_PERMISSION_REQUEST);}
+    }
+
+    private void grantPendingWebCameraPermission(){
+        PermissionRequest request=pendingWebCameraRequest;pendingWebCameraRequest=null;if(request==null)return;
+        try{request.grant(new String[]{PermissionRequest.RESOURCE_VIDEO_CAPTURE});}
+        catch(Exception ex){try{request.deny();}catch(Exception ignored){}Toast.makeText(this,"Camera permission could not be granted to the driver screen",Toast.LENGTH_LONG).show();}
+    }
+
+    private void denyPendingWebCameraPermission(){PermissionRequest request=pendingWebCameraRequest;pendingWebCameraRequest=null;if(request!=null){try{request.deny();}catch(Exception ignored){}}}
 
     private boolean handleExternalUrl(String url){
         if(url==null||url.isEmpty())return false;
@@ -87,7 +113,7 @@ public class MainActivity extends Activity {
 
     private void installOfflineAndFastSync(WebView view){
         String js="(function(){try{"+
-            "if(window.__DMM323)return;window.__DMM323=true;if(!window.DMMNative)return;"+
+            "if(window.__DMM324)return;window.__DMM324=true;if(!window.DMMNative)return;"+
             "var KEY='dmmJobsV3',os=Storage.prototype.setItem,og=Storage.prototype.getItem,or=Storage.prototype.removeItem;"+
             "function arr(v){try{var a=JSON.parse(v||'[]');return Array.isArray(a)?a:[];}catch(e){return[];}}"+
             "function idOf(j){return j&&j.id!=null?String(j.id):'';}"+
@@ -98,7 +124,7 @@ public class MainActivity extends Activity {
             "var nativeFetch=window.fetch;window.fetch=function(input,init){var body='';try{body=init&&typeof init.body==='string'?init.body:'';}catch(e){}return nativeFetch.apply(this,arguments).then(function(resp){try{if(resp&&resp.ok&&body){var p=JSON.parse(DMMNative.pendingDetails()||'[]');for(var i=0;i<p.length;i++){var id=String(p[i].jobId||'');if(id&&body.indexOf(id)>=0){DMMNative.markJobSynced(id);}}}}catch(e){}return resp;});};"+
             "function clickSend(){try{if(!navigator.onLine||DMMNative.pendingCount()<=0)return;var els=document.querySelectorAll('button,a,[role=button]');for(var i=0;i<els.length;i++){var t=(els[i].innerText||els[i].textContent||'').trim().toLowerCase();if(t.indexOf('upload pending')>=0||t.indexOf('send now')>=0){els[i].click();return;}}}catch(e){}}"+
             "window.addEventListener('online',function(){setTimeout(clickSend,400);});if(navigator.onLine&&DMMNative.pendingCount()>0)setTimeout(clickSend,900);"+
-        "}catch(e){console.error('DMM v3.23 install failed',e);}})();";view.evaluateJavascript(js,null);
+        "}catch(e){console.error('DMM v3.24 install failed',e);}})();";view.evaluateJavascript(js,null);
     }
 
     private void refreshPendingButton(){if(pendingButton==null||offlineDatabase==null)return;runOnUiThread(()->{int n=0;try{n=offlineDatabase.pendingCount();}catch(Exception ignored){}boolean online=isOnline();if(online)pendingButton.setText(n>0?"ONLINE · "+n+" READY TO SEND":"ONLINE · ALL SYNCED ✓");else pendingButton.setText(n>0?"OFFLINE · "+n+" READY TO SEND":"OFFLINE · 0 PENDING");});}
@@ -107,8 +133,8 @@ public class MainActivity extends Activity {
     private void startGalleryFlow(){try{Intent i=new Intent(Intent.ACTION_OPEN_DOCUMENT);i.addCategory(Intent.CATEGORY_OPENABLE);i.setType("image/*");startActivityForResult(i,PICK_PHOTO_REQUEST);}catch(Exception ex){Toast.makeText(this,"Unable to open photos",Toast.LENGTH_LONG).show();clearFileCallback();}}
     private void clearFileCallback(){if(filePathCallback!=null)filePathCallback.onReceiveValue(null);filePathCallback=null;pendingCameraUri=null;}
     @Override protected void onActivityResult(int requestCode,int resultCode,Intent data){if(requestCode==CAMERA_REQUEST){Uri result=(resultCode==RESULT_OK)?pendingCameraUri:null;if(filePathCallback!=null)filePathCallback.onReceiveValue(result==null?null:new Uri[]{result});if(result==null&&pendingCameraUri!=null){try{getContentResolver().delete(pendingCameraUri,null,null);}catch(Exception ignored){}}filePathCallback=null;pendingCameraUri=null;return;}if(requestCode==PICK_PHOTO_REQUEST){Uri uri=resultCode==RESULT_OK&&data!=null?data.getData():null;if(filePathCallback!=null)filePathCallback.onReceiveValue(uri==null?null:new Uri[]{uri});filePathCallback=null;return;}super.onActivityResult(requestCode,resultCode,data);}
-    @Override public void onRequestPermissionsResult(int requestCode,String[] permissions,int[] grantResults){super.onRequestPermissionsResult(requestCode,permissions,grantResults);if(requestCode==CAMERA_PERMISSION_REQUEST){if(grantResults.length>0&&grantResults[0]==PackageManager.PERMISSION_GRANTED)startCameraFlow();else{Toast.makeText(this,"Camera permission denied · Select Photo instead",Toast.LENGTH_LONG).show();startGalleryFlow();}}}
+    @Override public void onRequestPermissionsResult(int requestCode,String[] permissions,int[] grantResults){super.onRequestPermissionsResult(requestCode,permissions,grantResults);if(requestCode==CAMERA_PERMISSION_REQUEST){if(grantResults.length>0&&grantResults[0]==PackageManager.PERMISSION_GRANTED)startCameraFlow();else{Toast.makeText(this,"Camera permission denied · Select Photo instead",Toast.LENGTH_LONG).show();startGalleryFlow();}return;}if(requestCode==WEB_CAMERA_PERMISSION_REQUEST){if(grantResults.length>0&&grantResults[0]==PackageManager.PERMISSION_GRANTED)grantPendingWebCameraPermission();else{denyPendingWebCameraPermission();Toast.makeText(this,"Camera permission is required for Take Photo",Toast.LENGTH_LONG).show();}}}
     @Override public void onBackPressed(){if(webView!=null&&webView.canGoBack())webView.goBack();else super.onBackPressed();}
     @Override protected void onSaveInstanceState(Bundle outState){if(webView!=null)webView.saveState(outState);super.onSaveInstanceState(outState);}
-    @Override protected void onDestroy(){uiHandler.removeCallbacks(pendingRefresh);if(webView!=null){webView.removeJavascriptInterface("DMMNative");webView.destroy();webView=null;}if(offlineDatabase!=null){offlineDatabase.close();offlineDatabase=null;}super.onDestroy();}
+    @Override protected void onDestroy(){denyPendingWebCameraPermission();uiHandler.removeCallbacks(pendingRefresh);if(webView!=null){webView.removeJavascriptInterface("DMMNative");webView.destroy();webView=null;}if(offlineDatabase!=null){offlineDatabase.close();offlineDatabase=null;}super.onDestroy();}
 }
