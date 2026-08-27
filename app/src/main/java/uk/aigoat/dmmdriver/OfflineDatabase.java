@@ -36,7 +36,9 @@ public class OfflineDatabase extends SQLiteOpenHelper {
         db.execSQL("CREATE TABLE IF NOT EXISTS jobs (id TEXT PRIMARY KEY, json TEXT NOT NULL, pending INTEGER NOT NULL DEFAULT 0, updated_at INTEGER NOT NULL)");
         db.execSQL("CREATE INDEX IF NOT EXISTS idx_jobs_pending ON jobs(pending)");
         db.execSQL("CREATE TABLE IF NOT EXISTS sync_queue (job_id TEXT PRIMARY KEY, status TEXT NOT NULL DEFAULT 'pending', attempts INTEGER NOT NULL DEFAULT 0, last_error TEXT, next_retry_at INTEGER NOT NULL DEFAULT 0, updated_at INTEGER NOT NULL)");
-        db.execSQL("CREATE INDEX IF NOT EXISTS idx_sync_queue_status_retry ON sync_queue(status,next_retry_at)");
+        if (hasColumn(db, "sync_queue", "next_retry_at")) {
+            db.execSQL("CREATE INDEX IF NOT EXISTS idx_sync_queue_status_retry ON sync_queue(status,next_retry_at)");
+        }
         db.execSQL("CREATE TABLE IF NOT EXISTS kv_store (k TEXT PRIMARY KEY, v TEXT, updated_at INTEGER NOT NULL)");
         db.execSQL("CREATE TABLE IF NOT EXISTS attachments (id TEXT PRIMARY KEY, job_id TEXT, kind TEXT, local_path TEXT, remote_url TEXT, status TEXT NOT NULL DEFAULT 'local', updated_at INTEGER NOT NULL)");
         db.execSQL("CREATE INDEX IF NOT EXISTS idx_attachments_job_status ON attachments(job_id,status)");
@@ -45,14 +47,11 @@ public class OfflineDatabase extends SQLiteOpenHelper {
     }
 
     @Override public void onUpgrade(SQLiteDatabase db, int oldVersion, int newVersion) {
-        // Never destructively recreate user/offline data. First ensure all known tables exist,
-        // then apply explicit, version-gated migrations to existing installations.
+        // Non-destructive migration: create missing tables first, then add versioned columns.
         createSchema(db);
         if (oldVersion < 5) {
             addColumnIfMissing(db, "sync_queue", "next_retry_at", "INTEGER NOT NULL DEFAULT 0");
             db.execSQL("CREATE INDEX IF NOT EXISTS idx_sync_queue_status_retry ON sync_queue(status,next_retry_at)");
-            db.execSQL("CREATE INDEX IF NOT EXISTS idx_attachments_job_status ON attachments(job_id,status)");
-            db.execSQL("CREATE INDEX IF NOT EXISTS idx_completion_status ON completion_commits(status)");
         }
     }
 
@@ -163,7 +162,7 @@ public class OfflineDatabase extends SQLiteOpenHelper {
         }
 
         if (pending) {
-            // INSERT OR IGNORE preserves attempts/backoff for an already-pending job.
+            // Preserve previous retry state when the same pending job is saved again.
             ContentValues fresh = new ContentValues();
             fresh.put("job_id", id);
             fresh.put("status", "pending");
@@ -406,14 +405,14 @@ public class OfflineDatabase extends SQLiteOpenHelper {
     }
 
     public synchronized String statsJson() {
-        int jobs = 0, pending = 0, kv = 0, commits = 0, retryReady = 0;
+        int jobs = 0, pending = 0, kv = 0, commits = 0;
         SQLiteDatabase db = getReadableDatabase();
         try (Cursor c = db.rawQuery("SELECT COUNT(*),COALESCE(SUM(pending),0) FROM jobs", null)) {
             if (c.moveToFirst()) { jobs = c.getInt(0); pending = c.getInt(1); }
         }
         try (Cursor c = db.rawQuery("SELECT COUNT(*) FROM kv_store", null)) { if (c.moveToFirst()) kv = c.getInt(0); }
         try (Cursor c = db.rawQuery("SELECT COUNT(*) FROM completion_commits", null)) { if (c.moveToFirst()) commits = c.getInt(0); }
-        retryReady = retryReadyCount();
+        int retryReady = retryReadyCount();
         return "{\"jobs\":" + jobs + ",\"pending\":" + pending + ",\"retryReady\":" + retryReady + ",\"kv\":" + kv + ",\"completionCommits\":" + commits + ",\"dbVersion\":" + DB_VERSION + "}";
     }
 }
