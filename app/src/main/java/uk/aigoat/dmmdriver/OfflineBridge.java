@@ -4,9 +4,21 @@ import android.webkit.JavascriptInterface;
 
 public class OfflineBridge {
     private final OfflineDatabase db;
+    private final Runnable onChanged;
 
     public OfflineBridge(OfflineDatabase db) {
+        this(db, null);
+    }
+
+    public OfflineBridge(OfflineDatabase db, Runnable onChanged) {
         this.db = db;
+        this.onChanged = onChanged;
+    }
+
+    private void changed() {
+        if (onChanged != null) {
+            try { onChanged.run(); } catch (Exception ignored) {}
+        }
     }
 
     @JavascriptInterface
@@ -16,12 +28,16 @@ public class OfflineBridge {
 
     @JavascriptInterface
     public boolean setItem(String key, String value) {
-        try { return db.setItem(key, value); } catch (Exception ex) { return false; }
+        try {
+            boolean ok = db.setItem(key, value);
+            if (ok) changed();
+            return ok;
+        } catch (Exception ex) { return false; }
     }
 
     @JavascriptInterface
     public void removeItem(String key) {
-        try { db.removeItem(key); } catch (Exception ignored) {}
+        try { db.removeItem(key); changed(); } catch (Exception ignored) {}
     }
 
     @JavascriptInterface
@@ -31,22 +47,54 @@ public class OfflineBridge {
 
     @JavascriptInterface
     public boolean setJobsJson(String json) {
-        try { return db.setJobsJson(json); } catch (Exception ex) { return false; }
+        try {
+            boolean ok = db.setJobsJson(json);
+            if (ok) changed();
+            return ok;
+        } catch (Exception ex) { return false; }
     }
 
     @JavascriptInterface
     public boolean saveJobJson(String json) {
-        try { return db.saveJobJson(json); } catch (Exception ex) { return false; }
+        try {
+            boolean ok = db.saveJobJson(json);
+            if (ok) changed();
+            return ok;
+        } catch (Exception ex) { return false; }
     }
 
     @JavascriptInterface
     public String completeJobAtomic(String json) {
-        try { return db.completeJobAtomic(json); } catch (Exception ex) { return "{\"ok\":false,\"error\":\"Native completion exception\"}"; }
+        try {
+            String result = db.completeJobAtomic(json);
+            changed();
+            return result;
+        } catch (Exception ex) {
+            return "{\"ok\":false,\"error\":\"Native completion exception\"}";
+        }
     }
 
     @JavascriptInterface
     public boolean markJobSynced(String id) {
-        try { return db.markJobSynced(id); } catch (Exception ex) { return false; }
+        try {
+            boolean ok = db.markJobSynced(id);
+            if (ok) changed();
+            return ok;
+        } catch (Exception ex) { return false; }
+    }
+
+    @JavascriptInterface
+    public boolean markSyncFailed(String id, String error) {
+        try {
+            boolean ok = db.markSyncFailed(id, error);
+            if (ok) changed();
+            return ok;
+        } catch (Exception ex) { return false; }
+    }
+
+    @JavascriptInterface
+    public int retryReadyCount() {
+        try { return db.retryReadyCount(); } catch (Exception ex) { return 0; }
     }
 
     @JavascriptInterface
@@ -56,7 +104,11 @@ public class OfflineBridge {
 
     @JavascriptInterface
     public int clearNonPendingJobs() {
-        try { return db.clearNonPendingJobs(); } catch (Exception ex) { return 0; }
+        try {
+            int count = db.clearNonPendingJobs();
+            changed();
+            return count;
+        } catch (Exception ex) { return 0; }
     }
 
     @JavascriptInterface
@@ -76,6 +128,6 @@ public class OfflineBridge {
 
     @JavascriptInterface
     public String engine() {
-        return "sqlite-v3-atomic";
+        return "sqlite-v4-retry-safe";
     }
 }
