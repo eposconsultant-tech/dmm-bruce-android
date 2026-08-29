@@ -24,6 +24,7 @@ public class OfflineDatabase extends SQLiteOpenHelper {
     private static final String DB_NAME = "dmm_driver_offline.db";
     private static final int DB_VERSION = 4;
     private static final String PENDING_MARKER = "_pendingCloudUpload";
+    private static final int TEXT_CHUNK_SIZE = 256 * 1024;
 
     private enum WriteSource { LOCAL, SERVER }
 
@@ -72,6 +73,23 @@ public class OfflineDatabase extends SQLiteOpenHelper {
             while(c.moveToNext())ids.add(c.getString(0));
         }
         return ids;
+    }
+
+    private String readJobJson(SQLiteDatabase db,String id){
+        if(id==null||id.trim().isEmpty())return null;
+        StringBuilder out=new StringBuilder();int offset=1;
+        while(true){
+            String chunk;
+            try(Cursor c=db.rawQuery("SELECT substr(json,?,?) FROM jobs WHERE id=?",new String[]{String.valueOf(offset),String.valueOf(TEXT_CHUNK_SIZE),id})){
+                if(!c.moveToFirst()||c.isNull(0))return out.length()==0?null:out.toString();
+                chunk=c.getString(0);
+            }
+            if(chunk==null||chunk.isEmpty())break;
+            out.append(chunk);
+            if(chunk.length()<TEXT_CHUNK_SIZE)break;
+            offset+=TEXT_CHUNK_SIZE;
+        }
+        return out.toString();
     }
 
     private String upsertJob(SQLiteDatabase db,JSONObject incoming,long now,WriteSource source,Set<String> knownPendingIds)throws Exception{
@@ -134,8 +152,8 @@ public class OfflineDatabase extends SQLiteOpenHelper {
 
     private String jobsJson(String selection){
         JSONArray out=new JSONArray();SQLiteDatabase db=getReadableDatabase();
-        try(Cursor c=db.query("jobs",new String[]{"json"},selection,null,null,null,"updated_at ASC")){
-            while(c.moveToNext()){try{out.put(new JSONObject(c.getString(0)));}catch(Exception ignored){}}
+        try(Cursor c=db.query("jobs",new String[]{"id"},selection,null,null,null,"updated_at ASC")){
+            while(c.moveToNext()){try{String json=readJobJson(db,c.getString(0));if(json!=null)out.put(new JSONObject(json));}catch(Exception ignored){}}
         }
         return out.toString();
     }
@@ -144,11 +162,7 @@ public class OfflineDatabase extends SQLiteOpenHelper {
     public synchronized String getPendingJobsJson(){return jobsJson("pending=1");}
 
     public synchronized String getJobJson(String id){
-        if(id==null||id.trim().isEmpty())return null;SQLiteDatabase db=getReadableDatabase();
-        try(Cursor c=db.query("jobs",new String[]{"json"},"id=?",new String[]{id},null,null,null,"1")){
-            if(c.moveToFirst())return c.getString(0);
-        }
-        return null;
+        return readJobJson(getReadableDatabase(),id);
     }
 
     public synchronized boolean saveJobJson(String json){
@@ -165,8 +179,8 @@ public class OfflineDatabase extends SQLiteOpenHelper {
             String id=upsertLocalJob(db,job,System.currentTimeMillis());String payload=job.toString();String checksum=sha256(canonicalJson(job,true));
             ContentValues commit=new ContentValues();commit.put("job_id",id);commit.put("checksum",checksum);commit.put("payload_json",payload);commit.put("status","pending");commit.put("committed_at",System.currentTimeMillis());
             if(db.insertWithOnConflict("completion_commits",null,commit,SQLiteDatabase.CONFLICT_REPLACE)==-1)throw new IllegalStateException("completion commit insert failed");
-            String storedJson=null;int storedPending=0;
-            try(Cursor c=db.query("jobs",new String[]{"json","pending"},"id=?",new String[]{id},null,null,null,"1")){if(!c.moveToFirst())throw new IllegalStateException("job read-back failed");storedJson=c.getString(0);storedPending=c.getInt(1);}
+            String storedJson=readJobJson(db,id);int storedPending=0;
+            try(Cursor c=db.query("jobs",new String[]{"pending"},"id=?",new String[]{id},null,null,null,"1")){if(!c.moveToFirst()||storedJson==null)throw new IllegalStateException("job read-back failed");storedPending=c.getInt(0);}
             int queueCount=0;try(Cursor c=db.rawQuery("SELECT COUNT(*) FROM sync_queue WHERE job_id=? AND status='pending'",new String[]{id})){if(c.moveToFirst())queueCount=c.getInt(0);}
             if(storedPending!=1||queueCount!=1)throw new IllegalStateException("pending queue verification failed");
             if(!checksum.equals(sha256(canonicalJson(new JSONObject(storedJson),true))))throw new IllegalStateException("payload checksum verification failed");
@@ -249,8 +263,8 @@ public class OfflineDatabase extends SQLiteOpenHelper {
             List<String> attempted=new ArrayList<>();JSONArray failed=new JSONArray();
             for(int i=0;i<ids.length();i++){
                 String id=String.valueOf(ids.opt(i)).trim();if(id.isEmpty()||attempted.contains(id))continue;attempted.add(id);
-                String localJson=null;int pending=0;
-                try(Cursor c=db.query("jobs",new String[]{"json","pending"},"id=?",new String[]{id},null,null,null,"1")){if(c.moveToFirst()){localJson=c.getString(0);pending=c.getInt(1);}}
+                String localJson=readJobJson(db,id);int pending=0;
+                try(Cursor c=db.query("jobs",new String[]{"pending"},"id=?",new String[]{id},null,null,null,"1")){if(c.moveToFirst())pending=c.getInt(0);}
                 JSONObject remote=remoteById.get(id);boolean matches=localJson!=null&&pending==1&&remote!=null&&canonicalJson(new JSONObject(localJson),true).equals(canonicalJson(remote,true));
                 int pendingCommit=0;try(Cursor c=db.rawQuery("SELECT COUNT(*) FROM completion_commits WHERE job_id=? AND status='pending'",new String[]{id})){if(c.moveToFirst())pendingCommit=c.getInt(0);}
                 if(matches&&pendingCommit>0&&!"delivered".equalsIgnoreCase(remote.optString("status","")))matches=false;
@@ -260,7 +274,7 @@ public class OfflineDatabase extends SQLiteOpenHelper {
 
             long now=System.currentTimeMillis();
             for(String id:attempted){
-                String localJson;try(Cursor c=db.query("jobs",new String[]{"json"},"id=?",new String[]{id},null,null,null,"1")){if(!c.moveToFirst())throw new IllegalStateException("job disappeared during confirmation");localJson=c.getString(0);}
+                String localJson=readJobJson(db,id);if(localJson==null)throw new IllegalStateException("job disappeared during confirmation");
                 JSONObject job=new JSONObject(localJson);job.remove(PENDING_MARKER);ContentValues cv=new ContentValues();cv.put("json",job.toString());cv.put("pending",0);cv.put("updated_at",now);
                 if(db.update("jobs",cv,"id=? AND pending=1",new String[]{id})!=1)throw new IllegalStateException("job confirmation update failed");
                 db.delete("sync_queue","job_id=?",new String[]{id});ContentValues cc=new ContentValues();cc.put("status","synced");cc.put("synced_at",now);db.update("completion_commits",cc,"job_id=?",new String[]{id});
@@ -272,7 +286,7 @@ public class OfflineDatabase extends SQLiteOpenHelper {
     public synchronized boolean markJobSynced(String id){
         if(id==null||id.trim().isEmpty())return false;SQLiteDatabase db=getWritableDatabase();db.beginTransaction();
         try{
-            String json=null;int pending=0;try(Cursor c=db.query("jobs",new String[]{"json","pending"},"id=?",new String[]{id},null,null,null,"1")){if(c.moveToFirst()){json=c.getString(0);pending=c.getInt(1);}}
+            String json=readJobJson(db,id);int pending=0;try(Cursor c=db.query("jobs",new String[]{"pending"},"id=?",new String[]{id},null,null,null,"1")){if(c.moveToFirst())pending=c.getInt(0);}
             if(json==null||pending!=1)return false;JSONObject job=new JSONObject(json);if(!"delivered".equalsIgnoreCase(job.optString("status","")))return false;job.remove(PENDING_MARKER);
             ContentValues cv=new ContentValues();cv.put("json",job.toString());cv.put("pending",0);cv.put("updated_at",System.currentTimeMillis());if(db.update("jobs",cv,"id=?",new String[]{id})!=1)throw new IllegalStateException("job sync update failed");
             db.delete("sync_queue","job_id=?",new String[]{id});ContentValues cc=new ContentValues();cc.put("status","synced");cc.put("synced_at",System.currentTimeMillis());db.update("completion_commits",cc,"job_id=?",new String[]{id});db.setTransactionSuccessful();return true;
@@ -285,6 +299,7 @@ public class OfflineDatabase extends SQLiteOpenHelper {
 
     public synchronized int clearNonPendingJobs(){SQLiteDatabase db=getWritableDatabase();db.beginTransaction();try{int removed=db.delete("jobs","pending=0",null);db.execSQL("DELETE FROM sync_queue WHERE job_id NOT IN (SELECT id FROM jobs)");db.setTransactionSuccessful();return removed;}finally{db.endTransaction();}}
     public synchronized int pendingCount(){SQLiteDatabase db=getReadableDatabase();try(Cursor c=db.rawQuery("SELECT COUNT(DISTINCT id) FROM (SELECT job_id AS id FROM sync_queue WHERE status='pending' UNION SELECT job_id AS id FROM completion_commits WHERE status='pending' UNION SELECT id FROM jobs WHERE pending=1)",null)){return c.moveToFirst()?c.getInt(0):0;}}
-    public synchronized String pendingDetailsJson(){JSONArray out=new JSONArray();SQLiteDatabase db=getReadableDatabase();try(Cursor c=db.rawQuery("SELECT j.id,COALESCE(q.status,'pending'),COALESCE(q.attempts,0),q.last_error,j.updated_at,j.json FROM jobs j LEFT JOIN sync_queue q ON q.job_id=j.id WHERE j.pending=1 OR q.status='pending' OR j.id IN (SELECT job_id FROM completion_commits WHERE status='pending') ORDER BY j.updated_at ASC",null)){while(c.moveToNext()){try{JSONObject row=new JSONObject();row.put("jobId",c.getString(0));row.put("status",c.getString(1));row.put("attempts",c.getInt(2));row.put("lastError",c.isNull(3)?JSONObject.NULL:c.getString(3));row.put("updatedAt",c.getLong(4));if(!c.isNull(5))row.put("job",new JSONObject(c.getString(5)));out.put(row);}catch(Exception ignored){}}}return out.toString();}
+    public synchronized String pendingJobIdsJson(){JSONArray out=new JSONArray();SQLiteDatabase db=getReadableDatabase();try(Cursor c=db.rawQuery("SELECT DISTINCT id FROM (SELECT job_id AS id FROM sync_queue WHERE status='pending' UNION SELECT job_id AS id FROM completion_commits WHERE status='pending' UNION SELECT id FROM jobs WHERE pending=1) ORDER BY id",null)){while(c.moveToNext())out.put(c.getString(0));}return out.toString();}
+    public synchronized String pendingDetailsJson(){JSONArray out=new JSONArray();SQLiteDatabase db=getReadableDatabase();try(Cursor c=db.rawQuery("SELECT j.id,COALESCE(q.status,'pending'),COALESCE(q.attempts,0),q.last_error,j.updated_at FROM jobs j LEFT JOIN sync_queue q ON q.job_id=j.id WHERE j.pending=1 OR q.status='pending' OR j.id IN (SELECT job_id FROM completion_commits WHERE status='pending') ORDER BY j.updated_at ASC",null)){while(c.moveToNext()){try{String id=c.getString(0);JSONObject row=new JSONObject();row.put("jobId",id);row.put("status",c.getString(1));row.put("attempts",c.getInt(2));row.put("lastError",c.isNull(3)?JSONObject.NULL:c.getString(3));row.put("updatedAt",c.getLong(4));String json=readJobJson(db,id);if(json!=null)row.put("job",new JSONObject(json));out.put(row);}catch(Exception ignored){}}}return out.toString();}
     public synchronized String statsJson(){int jobs=0,pending=0,kv=0,commits=0;SQLiteDatabase db=getReadableDatabase();try(Cursor c=db.rawQuery("SELECT COUNT(*),COALESCE(SUM(pending),0) FROM jobs",null)){if(c.moveToFirst()){jobs=c.getInt(0);pending=c.getInt(1);}}try(Cursor c=db.rawQuery("SELECT COUNT(*) FROM kv_store",null)){if(c.moveToFirst())kv=c.getInt(0);}try(Cursor c=db.rawQuery("SELECT COUNT(*) FROM completion_commits",null)){if(c.moveToFirst())commits=c.getInt(0);}return "{\"jobs\":"+jobs+",\"pending\":"+pending+",\"kv\":"+kv+",\"completionCommits\":"+commits+",\"dbVersion\":"+DB_VERSION+"}";}
 }

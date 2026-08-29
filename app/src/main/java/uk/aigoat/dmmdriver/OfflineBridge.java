@@ -90,6 +90,11 @@ public class OfflineBridge {
     }
 
     @JavascriptInterface
+    public String pendingJobIds() {
+        try { return db.pendingJobIdsJson(); } catch (Exception ex) { return "[]"; }
+    }
+
+    @JavascriptInterface
     public String pendingDetails() {
         try { return db.pendingDetailsJson(); } catch (Exception ex) { return "[]"; }
     }
@@ -101,6 +106,6 @@ public class OfflineBridge {
 
     @JavascriptInterface
     public String engine() {
-        return "sqlite-v4-verified-sync";
+        return "sqlite-v4-chunked-verified-sync";
     }
 }
