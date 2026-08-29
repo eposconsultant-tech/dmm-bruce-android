@@ -30,8 +30,28 @@ public class OfflineBridge {
     }
 
     @JavascriptInterface
+    public String getPendingJobsJson() {
+        try { return db.getPendingJobsJson(); } catch (Exception ex) { return "[]"; }
+    }
+
+    @JavascriptInterface
     public boolean setJobsJson(String json) {
         try { return db.setJobsJson(json); } catch (Exception ex) { return false; }
+    }
+
+    @JavascriptInterface
+    public boolean persistLocalJobsJson(String json) {
+        try { return db.persistLocalJobsJson(json); } catch (Exception ex) { return false; }
+    }
+
+    @JavascriptInterface
+    public boolean mergeServerJobsJson(String json) {
+        try { return db.mergeServerJobsJson(json); } catch (Exception ex) { return false; }
+    }
+
+    @JavascriptInterface
+    public boolean migrateLegacyJobsOnce(String json, String marker) {
+        try { return db.migrateLegacyJobsOnce(json, marker); } catch (Exception ex) { return false; }
     }
 
     @JavascriptInterface
@@ -47,6 +67,11 @@ public class OfflineBridge {
     @JavascriptInterface
     public boolean markJobSynced(String id) {
         try { return db.markJobSynced(id); } catch (Exception ex) { return false; }
+    }
+
+    @JavascriptInterface
+    public String confirmJobsSynced(String idsJson, String remoteRowsJson) {
+        try { return db.confirmJobsSynced(idsJson, remoteRowsJson); } catch (Exception ex) { return "{\"ok\":false,\"error\":\"Native confirmation exception\"}"; }
     }
 
     @JavascriptInterface
@@ -76,6 +101,6 @@ public class OfflineBridge {
 
     @JavascriptInterface
     public String engine() {
-        return "sqlite-v3-atomic";
+        return "sqlite-v4-verified-sync";
     }
 }

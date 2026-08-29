@@ -6,12 +6,28 @@
     <uses-feature android:name="android.hardware.camera" android:required="false" />
     <uses-feature android:name="android.hardware.camera.autofocus" android:required="false" />
 
+    <queries>
+        <intent>
+            <action android:name="android.media.action.IMAGE_CAPTURE" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:scheme="geo" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.DIAL" />
+            <data android:scheme="tel" />
+        </intent>
+    </queries>
+
     <application
         android:allowBackup="false"
+        android:dataExtractionRules="@xml/data_extraction_rules"
+        android:fullBackupContent="false"
         android:usesCleartextTraffic="false"
-        android:label="Direct Mini Mix Driver"
-        android:icon="@drawable/aigoat_launcher"
-        android:roundIcon="@drawable/aigoat_launcher"
+        android:label="@string/app_name"
+        android:icon="@mipmap/aigoat_launcher"
+        android:roundIcon="@mipmap/aigoat_launcher"
         android:theme="@style/AppTheme">
 
         <activity

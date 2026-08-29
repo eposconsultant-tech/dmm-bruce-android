@@ -1,0 +1,3 @@
+<inset xmlns:android="http://schemas.android.com/apk/res/android"
+    android:drawable="@drawable/aigoat_driver_foreground"
+    android:inset="20dp" />
