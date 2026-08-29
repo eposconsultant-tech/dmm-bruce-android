@@ -25,23 +25,23 @@ jobs:
       - name: Build debug APK
         run: gradle assembleDebug
       - name: Prepare named APK
-        run: cp app/build/outputs/apk/debug/app-debug.apk DMM-Driver-v3.24.apk
+        run: cp app/build/outputs/apk/debug/app-debug.apk DMM-Driver-v3.25.apk
       - name: Upload workflow artifact
         uses: actions/upload-artifact@v4
         with:
-          name: DMM-Driver-v3.24
-          path: DMM-Driver-v3.24.apk
+          name: DMM-Driver-v3.25
+          path: DMM-Driver-v3.25.apk
       - name: Publish latest test APK release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh release delete dmm-driver-latest --cleanup-tag --yes || true
-          gh release create dmm-driver-latest DMM-Driver-v3.24.apk \
-            --title "DMM Driver v3.24 WEBVIEW CAMERA PERMISSION" \
-            --notes "Paired with Portal v2.19.17. Adds explicit Android WebView camera permission handling for portal getUserMedia capture, restricted to https://dmm.aigoat.uk. Keeps existing native camera/gallery chooser, offline SQLite, sticky pending, fast-sync and external-intent handling unchanged."
+          gh release create dmm-driver-latest DMM-Driver-v3.25.apk \
+            --title "DMM Driver v3.25 CAMERA CALLBACK HARDENING" \
+            --notes "Hardens the portal getUserMedia permission callback and native camera/file chooser lifecycle, keeps camera access restricted to https://dmm.aigoat.uk, and leaves offline SQLite, sync and external-intent behaviour unchanged."
       - name: Record successful build
         run: |
-          printf 'DMM Driver v3.24 WEBVIEW CAMERA PERMISSION\nBuilt from commit: %s\nWorkflow run: %s\nRelease tag: dmm-driver-latest\nAPK: DMM-Driver-v3.24.apk\n' "$GITHUB_SHA" "$GITHUB_RUN_ID" > LATEST_APK_BUILD.txt
+          printf 'DMM Driver v3.25 CAMERA CALLBACK HARDENING\nBuilt from commit: %s\nWorkflow run: %s\nRelease tag: dmm-driver-latest\nAPK: DMM-Driver-v3.25.apk\n' "$GITHUB_SHA" "$GITHUB_RUN_ID" > LATEST_APK_BUILD.txt
           git config user.name "github-actions[bot]"
           git config user.email "4189826+github-actions[bot]@users.noreply.github.com"
           git add LATEST_APK_BUILD.txt
