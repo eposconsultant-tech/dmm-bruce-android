@@ -1,5 +1,5 @@
-DMM Driver v3.26 CAMERA PREVIEW AUTOPLAY
-Built from commit: c00a6af8584f1a2b5ebfaef54a784e0518c5ce18
-Workflow run: 33239684226
+DMM Driver v3.27 APP-ONLY SCROLL RAIL
+Built from commit: 83310ef2dc6cbf142cbe43d250e712ab8cb980fc
+Workflow run: 33240416611
 Release tag: dmm-driver-latest
-APK: DMM-Driver-v3.26.apk
+APK: DMM-Driver-v3.27.apk
