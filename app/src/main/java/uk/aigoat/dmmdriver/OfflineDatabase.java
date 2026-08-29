@@ -26,7 +26,7 @@ public class OfflineDatabase extends SQLiteOpenHelper {
     private static final String PENDING_MARKER = "_pendingCloudUpload";
     private static final int TEXT_CHUNK_SIZE = 256 * 1024;
 
-    private enum WriteSource { LOCAL, SERVER }
+    private enum WriteSource { LOCAL_SNAPSHOT, LOCAL_COMPLETION, LEGACY_MIGRATION, SERVER }
 
     public OfflineDatabase(Context context) { super(context, DB_NAME, null, DB_VERSION); }
 
@@ -95,9 +95,13 @@ public class OfflineDatabase extends SQLiteOpenHelper {
     private String upsertJob(SQLiteDatabase db,JSONObject incoming,long now,WriteSource source,Set<String> knownPendingIds)throws Exception{
         String id=requireId(incoming);
         boolean oldPending=knownPendingIds==null?isAlreadyPending(db,id):knownPendingIds.contains(id);
-        boolean explicitLocalPending=source==WriteSource.LOCAL&&incoming.optBoolean(PENDING_MARKER,false);
+        boolean explicitLocalPending=(source==WriteSource.LOCAL_COMPLETION||source==WriteSource.LEGACY_MIGRATION)
+                &&incoming.optBoolean(PENDING_MARKER,false);
 
-        if(source==WriteSource.SERVER)incoming.remove(PENDING_MARKER);
+        // A portal snapshot or server download may contain a stale/private marker.
+        // Only the native atomic completion path (or the one-time legacy handover)
+        // is allowed to create a device-local upload queue entry.
+        if(source==WriteSource.SERVER||source==WriteSource.LOCAL_SNAPSHOT)incoming.remove(PENDING_MARKER);
 
         // Never let unverified cloud/cache data replace a payload awaiting confirmation.
         if(oldPending&&!explicitLocalPending)return id;
@@ -120,8 +124,8 @@ public class OfflineDatabase extends SQLiteOpenHelper {
         return id;
     }
 
-    private String upsertLocalJob(SQLiteDatabase db,JSONObject job,long now)throws Exception {
-        return upsertJob(db,job,now,WriteSource.LOCAL,null);
+    private String upsertLocalSnapshot(SQLiteDatabase db,JSONObject job,long now)throws Exception {
+        return upsertJob(db,job,now,WriteSource.LOCAL_SNAPSHOT,null);
     }
 
     public synchronized String getItem(String key){
@@ -167,7 +171,7 @@ public class OfflineDatabase extends SQLiteOpenHelper {
 
     public synchronized boolean saveJobJson(String json){
         SQLiteDatabase db=getWritableDatabase();db.beginTransaction();
-        try{JSONObject job=new JSONObject(json==null?"{}":json);upsertLocalJob(db,job,System.currentTimeMillis());db.setTransactionSuccessful();return true;}
+        try{JSONObject job=new JSONObject(json==null?"{}":json);upsertLocalSnapshot(db,job,System.currentTimeMillis());db.setTransactionSuccessful();return true;}
         catch(Exception ex){return false;}finally{db.endTransaction();}
     }
 
@@ -176,7 +180,7 @@ public class OfflineDatabase extends SQLiteOpenHelper {
         try{
             JSONObject job=new JSONObject(json==null?"{}":json);job.put(PENDING_MARKER,true);
             if(!"delivered".equalsIgnoreCase(job.optString("status","")))throw new IllegalStateException("completion status must be Delivered");
-            String id=upsertLocalJob(db,job,System.currentTimeMillis());String payload=job.toString();String checksum=sha256(canonicalJson(job,true));
+            String id=upsertJob(db,job,System.currentTimeMillis(),WriteSource.LOCAL_COMPLETION,null);String payload=job.toString();String checksum=sha256(canonicalJson(job,true));
             ContentValues commit=new ContentValues();commit.put("job_id",id);commit.put("checksum",checksum);commit.put("payload_json",payload);commit.put("status","pending");commit.put("committed_at",System.currentTimeMillis());
             if(db.insertWithOnConflict("completion_commits",null,commit,SQLiteDatabase.CONFLICT_REPLACE)==-1)throw new IllegalStateException("completion commit insert failed");
             String storedJson=readJobJson(db,id);int storedPending=0;
@@ -207,7 +211,7 @@ public class OfflineDatabase extends SQLiteOpenHelper {
     }
 
     public synchronized boolean setJobsJson(String json){return persistLocalJobsJson(json);}
-    public synchronized boolean persistLocalJobsJson(String json){return writeJobsJson(json,WriteSource.LOCAL);}
+    public synchronized boolean persistLocalJobsJson(String json){return writeJobsJson(json,WriteSource.LOCAL_SNAPSHOT);}
     public synchronized boolean mergeServerJobsJson(String json){return writeJobsJson(json,WriteSource.SERVER);}
 
     public synchronized boolean migrateLegacyJobsOnce(String json,String marker){
@@ -222,7 +226,7 @@ public class OfflineDatabase extends SQLiteOpenHelper {
                 if(!incomingPending)continue;
                 boolean exists=false;boolean existingPending=false;
                 try(Cursor c=db.query("jobs",new String[]{"pending"},"id=?",new String[]{id},null,null,null,"1")){if(c.moveToFirst()){exists=true;existingPending=c.getInt(0)==1;}}
-                if(!exists||!existingPending)upsertLocalJob(db,incoming,now+i);
+                if(!exists||!existingPending)upsertJob(db,incoming,now+i,WriteSource.LEGACY_MIGRATION,null);
             }
             ContentValues done=new ContentValues();done.put("k",marker);done.put("v","1");done.put("updated_at",now);
             if(db.insertWithOnConflict("kv_store",null,done,SQLiteDatabase.CONFLICT_REPLACE)==-1)throw new IllegalStateException("migration marker write failed");

@@ -7,7 +7,7 @@ public final class PortalAdapter {
 
     public static void install(WebView v) {
         String js = "(function(){try{" +
-            "window.__DMM_ANDROID_APK=true;window.__DMM_ANDROID_SQLITE=true;window.__DMM_ANDROID_APK_VERSION='3.08';" +
+            "window.__DMM_ANDROID_APK=true;window.__DMM_ANDROID_SQLITE=true;window.__DMM_ANDROID_APK_VERSION='3.30';" +
             "document.documentElement.classList.add('dmm-android-apk');document.body.classList.add('dmm-android-apk');" +
             "if(!window.DMMNative)return;" +
             "window.__dmmNativePersist=function(arr){try{arr=Array.isArray(arr)?arr:[];for(var i=0;i<arr.length;i++){var j=arr[i];if(j&&j._pendingCloudUpload===true&&String(j.status||'').toLowerCase()==='delivered'){var r=JSON.parse(DMMNative.completeJobAtomic(JSON.stringify(j)));if(!r.ok)throw new Error(r.error||'SQLite completion verification failed');}}if(!DMMNative.setJobsJson(JSON.stringify(arr)))throw new Error('SQLite jobs write failed');return true;}catch(e){console.error('DMM SQLite persist failed',e);return false;}};" +
