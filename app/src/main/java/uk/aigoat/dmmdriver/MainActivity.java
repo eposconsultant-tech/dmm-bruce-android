@@ -13,6 +13,7 @@ import android.graphics.drawable.GradientDrawable;
 import android.net.ConnectivityManager;
 import android.net.Network;
 import android.net.NetworkCapabilities;
+import android.net.NetworkRequest;
 import android.net.Uri;
 import android.os.Bundle;
 import android.os.Handler;
@@ -54,7 +55,10 @@ public class MainActivity extends Activity {
     private ValueCallback<Uri[]> filePathCallback;
     private Uri pendingCameraUri;
     private PermissionRequest pendingWebCameraRequest;
-    private final Runnable pendingRefresh = new Runnable(){@Override public void run(){refreshPendingButton();uiHandler.postDelayed(this,5000);}};
+    private ConnectivityManager connectivityManager;
+    private ConnectivityManager.NetworkCallback networkCallback;
+    private boolean networkCallbackRegistered;
+    private final Runnable pendingRefresh = new Runnable(){@Override public void run(){refreshPendingButton();uiHandler.postDelayed(this,2000);}};
 
     @Override protected void onCreate(Bundle savedInstanceState){
         super.onCreate(savedInstanceState);getWindow().setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE);offlineDatabase=new OfflineDatabase(this);
@@ -69,10 +73,10 @@ public class MainActivity extends Activity {
         View headerSpacer=new View(this);header.addView(headerSpacer,new LinearLayout.LayoutParams(0,1,1f));
         pendingButton=new Button(this);pendingButton.setAllCaps(false);pendingButton.setTextSize(9.5f);pendingButton.setTextColor(Color.WHITE);pendingButton.setPadding(dp(10),0,dp(10),0);GradientDrawable pendingBackground=new GradientDrawable();pendingBackground.setColor(Color.rgb(17,24,39));pendingBackground.setCornerRadius(dp(9));pendingBackground.setStroke(dp(1),Color.rgb(37,99,235));pendingButton.setBackground(pendingBackground);pendingButton.setOnClickListener(v->showPendingDetails());header.addView(pendingButton,new LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT,dp(38)));
         root.addView(header,new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT,dp(50)));root.addView(webView,new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT,0,1f));setContentView(root);
-        WebSettings s=webView.getSettings();s.setJavaScriptEnabled(true);s.setDomStorageEnabled(true);s.setDatabaseEnabled(true);s.setLoadsImagesAutomatically(true);s.setUseWideViewPort(true);s.setLoadWithOverviewMode(true);s.setAllowFileAccess(false);s.setAllowContentAccess(true);s.setMediaPlaybackRequiresUserGesture(false);s.setCacheMode(isOnline()?WebSettings.LOAD_DEFAULT:WebSettings.LOAD_CACHE_ELSE_NETWORK);s.setUserAgentString(s.getUserAgentString()+" DMM-Android-Driver/3.30 ExternalIntents/2 FastSync/3 StickyPending/4 StorageChunking/1 NativeCamera/3 WebCameraPermission/2 CameraPreviewAutoplay/1 NaturalTouchScroll/1 AiGOATBranding/1");
+        WebSettings s=webView.getSettings();s.setJavaScriptEnabled(true);s.setDomStorageEnabled(true);s.setDatabaseEnabled(true);s.setLoadsImagesAutomatically(true);s.setUseWideViewPort(true);s.setLoadWithOverviewMode(true);s.setAllowFileAccess(false);s.setAllowContentAccess(true);s.setMediaPlaybackRequiresUserGesture(false);s.setCacheMode(isOnline()?WebSettings.LOAD_DEFAULT:WebSettings.LOAD_CACHE_ELSE_NETWORK);s.setUserAgentString(s.getUserAgentString()+" DMM-Android-Driver/3.31 ExternalIntents/2 FastSync/4 StickyPending/5 StorageChunking/1 NativeCamera/3 WebCameraPermission/2 CameraPreviewAutoplay/1 NaturalTouchScroll/1 AiGOATBranding/1");
         CookieManager.getInstance().setAcceptCookie(true);CookieManager.getInstance().setAcceptThirdPartyCookies(webView,true);
         webView.setWebViewClient(new WebViewClient(){
-            @Override public void onPageFinished(WebView view,String url){super.onPageFinished(view,url);if(isOnline())view.getSettings().setCacheMode(WebSettings.LOAD_DEFAULT);installOfflineAndFastSync(view);refreshPendingButton();}
+            @Override public void onPageFinished(WebView view,String url){super.onPageFinished(view,url);if(isOnline())view.getSettings().setCacheMode(WebSettings.LOAD_DEFAULT);installOfflineAndFastSync(view);refreshPendingButton();uiHandler.postDelayed(()->triggerPendingSync("page-finished"),1200);}
             @Override public boolean shouldOverrideUrlLoading(WebView view,WebResourceRequest request){return handleExternalUrl(request.getUrl()==null?null:request.getUrl().toString());}
             @Override public boolean shouldOverrideUrlLoading(WebView view,String url){return handleExternalUrl(url);}
         });
@@ -82,7 +86,7 @@ public class MainActivity extends Activity {
             @Override public void onPermissionRequestCanceled(PermissionRequest request){runOnUiThread(()->{if(pendingWebCameraRequest==request)pendingWebCameraRequest=null;});}
             @Override public boolean onJsAlert(WebView view,String url,String message,JsResult result){String m=message==null?"":message;String lower=m.toLowerCase(Locale.ROOT);if((lower.contains("saved on this device")&&lower.contains("cloud upload failed"))||(lower.contains("updated on this device")&&lower.contains("cloud upload failed"))||"failed to fetch".equals(lower.trim())){result.confirm();refreshPendingButton();Toast.makeText(MainActivity.this,"Saved offline · Ready to send",Toast.LENGTH_SHORT).show();return true;}return super.onJsAlert(view,url,message,result);}
         });
-        uiHandler.post(pendingRefresh);if(savedInstanceState==null)webView.loadUrl(DMM_URL);else webView.restoreState(savedInstanceState);
+        registerNetworkMonitoring();uiHandler.post(pendingRefresh);if(savedInstanceState==null)webView.loadUrl(DMM_URL);else webView.restoreState(savedInstanceState);
     }
 
     private void handleWebPermissionRequest(PermissionRequest request){
@@ -133,24 +137,58 @@ public class MainActivity extends Activity {
     private int dp(int value){return Math.round(value*getResources().getDisplayMetrics().density);}
     private boolean isOnline(){try{ConnectivityManager cm=(ConnectivityManager)getSystemService(CONNECTIVITY_SERVICE);Network n=cm.getActiveNetwork();if(n==null)return false;NetworkCapabilities c=cm.getNetworkCapabilities(n);return c!=null&&c.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)&&c.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED);}catch(Exception ex){return false;}}
 
+    private void registerNetworkMonitoring(){
+        connectivityManager=(ConnectivityManager)getSystemService(CONNECTIVITY_SERVICE);
+        if(connectivityManager==null||networkCallbackRegistered)return;
+        networkCallback=new ConnectivityManager.NetworkCallback(){
+            @Override public void onAvailable(Network network){scheduleNetworkStateCheck("network-available",350);}
+            @Override public void onCapabilitiesChanged(Network network,NetworkCapabilities capabilities){
+                if(capabilities!=null&&capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)&&capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED))scheduleNetworkStateCheck("network-validated",150);
+            }
+            @Override public void onLost(Network network){scheduleNetworkStateCheck("network-lost",350);}
+        };
+        try{
+            NetworkRequest request=new NetworkRequest.Builder().addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET).build();
+            connectivityManager.registerNetworkCallback(request,networkCallback);networkCallbackRegistered=true;
+        }catch(Exception ignored){networkCallbackRegistered=false;}
+    }
+
+    private void scheduleNetworkStateCheck(String reason,long delayMs){uiHandler.postDelayed(()->{
+        boolean online=isOnline();setWebNetworkState(online);refreshPendingButton();if(online)triggerPendingSync(reason);
+    },delayMs);}
+
+    private void setWebNetworkState(boolean online){if(webView==null)return;webView.evaluateJavascript("window.__DMM_ANDROID_NETWORK_VALIDATED="+(online?"true":"false")+";",null);}
+
+    private void triggerPendingSync(String reason){
+        if(webView==null||!isOnline()||offlineDatabase==null||offlineDatabase.pendingCount()<=0)return;
+        setWebNetworkState(true);String safeReason=JSONObject.quote(reason==null?"android":reason);
+        webView.evaluateJavascript("if(window.__DMM331_TRY_SYNC){window.__DMM331_TRY_SYNC("+safeReason+");}",null);
+    }
+
     private void installOfflineAndFastSync(WebView view){
         String js="(function(){try{"+
-            "if(window.__DMM330)return;window.__DMM330=true;if(!window.DMMNative)return;"+
-            "var KEY='dmmJobsV3',MIGRATION='native-jobs-seed-v330';"+
+            "if(window.__DMM331)return;window.__DMM331=true;if(!window.DMMNative)return;window.__DMM_ANDROID_NETWORK_VALIDATED="+(isOnline()?"true":"false")+";"+
+            "var KEY='dmmJobsV3',MIGRATION='native-jobs-seed-v331';"+
             "function arr(v){try{var a=JSON.parse(v||'[]');return Array.isArray(a)?a:[];}catch(e){return[];}}"+
             "function clearBrowserJobs(){try{Storage.prototype.removeItem.call(localStorage,KEY);}catch(e){console.warn('Oversized browser jobs cache could not be removed',e);}}"+
             "var raw='[]';try{raw=Storage.prototype.getItem.call(localStorage,KEY)||'[]';}catch(e){console.warn('Ignoring oversized legacy browser jobs cache',e);}clearBrowserJobs();if(!DMMNative.migrateLegacyJobsOnce(raw,MIGRATION))throw new Error('Legacy cache migration failed');"+
             "var initial=arr(navigator.onLine?DMMNative.getPendingJobsJson():DMMNative.getJobsJson());try{if(typeof jobs!=='undefined')jobs=initial;if(typeof renderDriverPortal==='function')renderDriverPortal();}catch(e){}"+
             "var required=['dmmDriverCloudCommit','dmmCloudFetchRows','dmmCloudUpsertRows','dmmPersistJobsCache','dmmPullJobsAuthoritative'],missing=[];for(var q=0;q<required.length;q++)if(typeof window[required[q]]!=='function')missing.push(required[q]);if(missing.length){console.error('DMM native bridge hooks unavailable',missing);return;}"+
-            "window.__DMM330_SYNC_BRIDGE=true;"+
+            "window.__DMM331_SYNC_BRIDGE=true;"+
             "var cloudUpsert=window.dmmCloudUpsertRows;window.dmmCloudUpsertRows=async function(type,items){var payload=items;if(type==='jobs'&&Array.isArray(items)){payload=[];for(var i=0;i<items.length;i++){var source=items[i]||{},clean={};for(var k in source)if(Object.prototype.hasOwnProperty.call(source,k)&&k!=='_pendingCloudUpload')clean[k]=source[k];payload.push(clean);}}return cloudUpsert.call(this,type,payload);};"+
             "var serverPullDepth=0,browserPersist=window.dmmPersistJobsCache;window.dmmPersistJobsCache=function(value){var list=Array.isArray(value)?value:[],ok=false;if(serverPullDepth){ok=DMMNative.mergeServerJobsJson(JSON.stringify(list));}else{for(var i=0;i<list.length;i++){var j=list[i];if(j&&j._pendingCloudUpload===true&&String(j.status||'').toLowerCase()==='delivered'){var completed=JSON.parse(DMMNative.completeJobAtomic(JSON.stringify(j)));if(!completed.ok)throw new Error(completed.error||'SQLite completion verification failed');}}ok=DMMNative.persistLocalJobsJson(JSON.stringify(list));}if(!ok)throw new Error('SQLite jobs write failed');var result=browserPersist.call(this,[]);clearBrowserJobs();return result;};"+
-            "var cloudPull=window.dmmPullJobsAuthoritative;window.dmmPullJobsAuthoritative=async function(){serverPullDepth++;try{return await cloudPull.apply(this,arguments);}catch(error){try{var fallback=arr(DMMNative.getJobsJson());if(typeof jobs!=='undefined')jobs=fallback;if(typeof renderDriverPortal==='function')renderDriverPortal();}catch(ignored){}throw error;}finally{serverPullDepth--;}};"+
-            "function restorePendingFromNative(){try{var pending=arr(DMMNative.getPendingJobsJson()),map={};for(var r=0;r<pending.length;r++)if(pending[r]&&pending[r].id!=null)map[String(pending[r].id)]=pending[r];if(typeof jobs!=='undefined'&&Array.isArray(jobs)){var merged=[],seen={};for(var m=0;m<jobs.length;m++){var current=jobs[m],id=current&&current.id!=null?String(current.id):'';if(id&&map[id]){merged.push(map[id]);seen[id]=true;}else merged.push(current);}for(var id in map)if(Object.prototype.hasOwnProperty.call(map,id)&&!seen[id])merged.push(map[id]);jobs=merged;clearBrowserJobs();if(typeof renderDriverPortal==='function')renderDriverPortal();}else clearBrowserJobs();}catch(ignored){}}"+
+            "var syncBusy=false,retryTimer=0,retryStep=0,retryDelays=[1000,3000,8000,15000,30000];"+
+            "function restorePendingFromNative(){try{var pending=arr(DMMNative.getPendingJobsJson()),map={};for(var r=0;r<pending.length;r++)if(pending[r]&&pending[r].id!=null)map[String(pending[r].id)]=pending[r];if(typeof jobs!=='undefined'&&Array.isArray(jobs)){var merged=[],seen={};for(var m=0;m<jobs.length;m++){var current=jobs[m],id=current&&current.id!=null?String(current.id):'';if(id&&map[id]){merged.push(map[id]);seen[id]=true;}else merged.push(current);}for(var id in map)if(Object.prototype.hasOwnProperty.call(map,id)&&!seen[id])merged.push(map[id]);jobs=merged;clearBrowserJobs();if(typeof renderDriverPortal==='function')renderDriverPortal();}else if(pending.length&&typeof jobs!=='undefined'){jobs=pending;if(typeof renderDriverPortal==='function')renderDriverPortal();}else clearBrowserJobs();return pending.length;}catch(ignored){return 0;}}"+
+            "function onlineNow(){return window.__DMM_ANDROID_NETWORK_VALIDATED===true;}"+
+            "async function verifyNativePending(){var ids=arr(DMMNative.pendingJobIds()||'[]');if(!ids.length)return true;var rows=await window.dmmCloudFetchRows('jobs'),verified=JSON.parse(DMMNative.confirmJobsSynced(JSON.stringify(ids),JSON.stringify(rows))||'{\"ok\":false}');return verified.ok===true&&DMMNative.pendingCount()===0;}"+
+            "function scheduleRetry(reason,delay){if(retryTimer)clearTimeout(retryTimer);var wait=typeof delay==='number'?delay:retryDelays[Math.min(retryStep,retryDelays.length-1)];retryStep=Math.min(retryStep+1,retryDelays.length-1);retryTimer=setTimeout(function(){retryTimer=0;attemptVerifiedSync(reason||'retry');},wait);}"+
+            "async function attemptVerifiedSync(reason){if(syncBusy||DMMNative.pendingCount()<=0)return;if(!onlineNow()){scheduleRetry('waiting-for-network',3000);return;}if(window.dmmCloudReady!==true){restorePendingFromNative();scheduleRetry('waiting-for-login',1500);return;}syncBusy=true;try{restorePendingFromNative();if(await verifyNativePending()){retryStep=0;return;}restorePendingFromNative();var commitError=null;try{await window.dmmDriverCloudCommit();}catch(error){commitError=error;}restorePendingFromNative();if(!(await verifyNativePending()))throw commitError||new Error('Cloud verification is still pending');retryStep=0;}catch(error){console.warn('DMM verified reconnect sync pending',reason,error);restorePendingFromNative();scheduleRetry('verification-retry');}finally{syncBusy=false;}}"+
+            "window.__DMM331_TRY_SYNC=function(reason){restorePendingFromNative();retryStep=0;scheduleRetry(reason||'android',100);};"+
+            "var cloudPull=window.dmmPullJobsAuthoritative;window.dmmPullJobsAuthoritative=async function(){serverPullDepth++;try{var result=await cloudPull.apply(this,arguments);restorePendingFromNative();if(DMMNative.pendingCount()>0)scheduleRetry('cloud-pull-complete',250);return result;}catch(error){try{var fallback=arr(DMMNative.getJobsJson());if(typeof jobs!=='undefined')jobs=fallback;if(typeof renderDriverPortal==='function')renderDriverPortal();}catch(ignored){}if(DMMNative.pendingCount()>0)scheduleRetry('cloud-pull-error',1500);throw error;}finally{serverPullDepth--;}};"+
             "var cloudCommit=window.dmmDriverCloudCommit;window.dmmDriverCloudCommit=async function(){var nativeRows=arr(DMMNative.pendingJobIds()||'[]'),jsPending={};try{if(typeof jobs!=='undefined'&&Array.isArray(jobs)){for(var i=0;i<jobs.length;i++){var j=jobs[i];if(j&&j._pendingCloudUpload===true&&j.id!=null)jsPending[String(j.id)]=true;}}}catch(e){}var attempted=[];for(var n=0;n<nativeRows.length;n++){var id=String(nativeRows[n]||'');if(id&&jsPending[id])attempted.push(id);}var result=await cloudCommit.apply(this,arguments);if(!attempted.length)return result;try{var remoteRows=await window.dmmCloudFetchRows('jobs'),verify=JSON.parse(DMMNative.confirmJobsSynced(JSON.stringify(attempted),JSON.stringify(remoteRows))||'{\"ok\":false}');if(!verify.ok)throw new Error('Cloud upload returned, but the saved job could not be verified. It remains ready to send.');}catch(error){restorePendingFromNative();throw error;}return result;};"+
-            "function clickSend(){try{if(!navigator.onLine||DMMNative.pendingCount()<=0)return;var els=document.querySelectorAll('button,a,[role=button]');for(var i=0;i<els.length;i++){var t=(els[i].innerText||els[i].textContent||'').trim().toLowerCase();if(t.indexOf('upload pending')>=0||t.indexOf('send now')>=0){els[i].click();return;}}}catch(e){}}"+
-            "window.addEventListener('online',function(){setTimeout(clickSend,400);});if(navigator.onLine&&DMMNative.pendingCount()>0)setTimeout(clickSend,900);"+
-        "}catch(e){console.error('DMM v3.30 install failed',e);}})();";view.evaluateJavascript(js,null);
+            "window.addEventListener('online',function(){window.__DMM331_TRY_SYNC('browser-online');});window.addEventListener('offline',function(){window.__DMM_ANDROID_NETWORK_VALIDATED=false;});"+
+            "setInterval(function(){if(DMMNative.pendingCount()>0&&onlineNow())scheduleRetry('periodic-check',100);},15000);if(DMMNative.pendingCount()>0)scheduleRetry('startup',900);"+
+        "}catch(e){console.error('DMM v3.31 install failed',e);}})();";view.evaluateJavascript(js,null);
     }
 
     private void refreshPendingButton(){if(pendingButton==null||offlineDatabase==null)return;runOnUiThread(()->{int n=0;try{n=offlineDatabase.pendingCount();}catch(Exception ignored){}boolean online=isOnline();if(online)pendingButton.setText(n>0?"ONLINE · "+n+" READY TO SEND":"ONLINE · ALL SYNCED ✓");else pendingButton.setText(n>0?"OFFLINE · "+n+" READY TO SEND":"OFFLINE · 0 PENDING");});}
@@ -161,7 +199,8 @@ public class MainActivity extends Activity {
     private void clearFileCallback(){if(filePathCallback!=null)filePathCallback.onReceiveValue(null);filePathCallback=null;deletePendingCameraImage();}
     @Override protected void onActivityResult(int requestCode,int resultCode,Intent data){if(requestCode==CAMERA_REQUEST){Uri result=(resultCode==RESULT_OK)?pendingCameraUri:null;if(filePathCallback!=null)filePathCallback.onReceiveValue(result==null?null:new Uri[]{result});if(result==null&&pendingCameraUri!=null){try{getContentResolver().delete(pendingCameraUri,null,null);}catch(Exception ignored){}}filePathCallback=null;pendingCameraUri=null;return;}if(requestCode==PICK_PHOTO_REQUEST){Uri uri=resultCode==RESULT_OK&&data!=null?data.getData():null;if(filePathCallback!=null)filePathCallback.onReceiveValue(uri==null?null:new Uri[]{uri});filePathCallback=null;return;}super.onActivityResult(requestCode,resultCode,data);}
     @Override public void onRequestPermissionsResult(int requestCode,String[] permissions,int[] grantResults){super.onRequestPermissionsResult(requestCode,permissions,grantResults);if(requestCode==CAMERA_PERMISSION_REQUEST){if(grantResults.length>0&&grantResults[0]==PackageManager.PERMISSION_GRANTED)startCameraFlow();else{Toast.makeText(this,"Camera permission denied · Select Photo instead",Toast.LENGTH_LONG).show();startGalleryFlow();}return;}if(requestCode==WEB_CAMERA_PERMISSION_REQUEST){if(grantResults.length>0&&grantResults[0]==PackageManager.PERMISSION_GRANTED)grantPendingWebCameraPermission();else{denyPendingWebCameraPermission();Toast.makeText(this,"Camera permission is required for Take Photo",Toast.LENGTH_LONG).show();}}}
+    @Override protected void onResume(){super.onResume();uiHandler.postDelayed(()->{setWebNetworkState(isOnline());triggerPendingSync("app-resume");},600);}
     @Override public void onBackPressed(){if(webView!=null&&webView.canGoBack())webView.goBack();else super.onBackPressed();}
     @Override protected void onSaveInstanceState(Bundle outState){if(webView!=null)webView.saveState(outState);super.onSaveInstanceState(outState);}
-    @Override protected void onDestroy(){denyPendingWebCameraPermission();uiHandler.removeCallbacks(pendingRefresh);if(webView!=null){webView.removeJavascriptInterface("DMMNative");webView.destroy();webView=null;}if(offlineDatabase!=null){offlineDatabase.close();offlineDatabase=null;}super.onDestroy();}
+    @Override protected void onDestroy(){denyPendingWebCameraPermission();uiHandler.removeCallbacksAndMessages(null);if(networkCallbackRegistered&&connectivityManager!=null&&networkCallback!=null){try{connectivityManager.unregisterNetworkCallback(networkCallback);}catch(Exception ignored){}networkCallbackRegistered=false;}if(webView!=null){webView.removeJavascriptInterface("DMMNative");webView.destroy();webView=null;}if(offlineDatabase!=null){offlineDatabase.close();offlineDatabase=null;}super.onDestroy();}
 }

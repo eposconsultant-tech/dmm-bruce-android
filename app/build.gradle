@@ -16,8 +16,8 @@ android {
         applicationId "uk.aigoat.dmmdriver"
         minSdk 23
         targetSdk 35
-        versionCode 30
-        versionName "3.30"
+        versionCode 31
+        versionName "3.31"
     }
 
     signingConfigs {
