@@ -1,5 +1,5 @@
-DMM Driver v3.24 WEBVIEW CAMERA PERMISSION
-Built from commit: f3ed2194efe8e1c43498f77d1860620dadc6f722
-Workflow run: 33104135529
+DMM Driver v3.25 CAMERA CALLBACK HARDENING
+Built from commit: 81ea7a6ad76d49df5c2e7bc35fff63a46523d301
+Workflow run: 33238921716
 Release tag: dmm-driver-latest
-APK: DMM-Driver-v3.24.apk
+APK: DMM-Driver-v3.25.apk
