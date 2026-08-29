@@ -25,23 +25,23 @@ jobs:
       - name: Build debug APK
         run: gradle assembleDebug
       - name: Prepare named APK
-        run: cp app/build/outputs/apk/debug/app-debug.apk DMM-Driver-v3.26.apk
+        run: cp app/build/outputs/apk/debug/app-debug.apk DMM-Driver-v3.27.apk
       - name: Upload workflow artifact
         uses: actions/upload-artifact@v4
         with:
-          name: DMM-Driver-v3.26
-          path: DMM-Driver-v3.26.apk
+          name: DMM-Driver-v3.27
+          path: DMM-Driver-v3.27.apk
       - name: Publish latest test APK release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh release delete dmm-driver-latest --cleanup-tag --yes || true
-          gh release create dmm-driver-latest DMM-Driver-v3.26.apk \
-            --title "DMM Driver v3.26 CAMERA PREVIEW AUTOPLAY" \
-            --notes "Allows the portal getUserMedia video preview to begin after the asynchronous Android permission flow instead of showing WebView's paused play overlay. Keeps v3.25 camera permission/callback hardening and leaves offline SQLite, sync and external-intent behaviour unchanged."
+          gh release create dmm-driver-latest DMM-Driver-v3.27.apk \
+            --title "DMM Driver v3.27 APP-ONLY SCROLL RAIL" \
+            --notes "Adds an Android-app-only right-side scroll rail with up/down controls and a draggable thumb to improve navigation around touch-sensitive areas such as the signature canvas. Keeps the working v3.26 camera path and leaves Portal browser UI, offline SQLite, sync and completion behaviour unchanged."
       - name: Record successful build
         run: |
-          printf 'DMM Driver v3.26 CAMERA PREVIEW AUTOPLAY\nBuilt from commit: %s\nWorkflow run: %s\nRelease tag: dmm-driver-latest\nAPK: DMM-Driver-v3.26.apk\n' "$GITHUB_SHA" "$GITHUB_RUN_ID" > LATEST_APK_BUILD.txt
+          printf 'DMM Driver v3.27 APP-ONLY SCROLL RAIL\nBuilt from commit: %s\nWorkflow run: %s\nRelease tag: dmm-driver-latest\nAPK: DMM-Driver-v3.27.apk\n' "$GITHUB_SHA" "$GITHUB_RUN_ID" > LATEST_APK_BUILD.txt
           git config user.name "github-actions[bot]"
           git config user.email "4189826+github-actions[bot]@users.noreply.github.com"
           git add LATEST_APK_BUILD.txt
